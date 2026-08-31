@@ -1,0 +1,37 @@
+name: Preview Down
+
+# Destroy a PR's preview — the name-prefixed workloads, the ephemeral bucket,
+# and the copy-on-write Neon branches — when the PR closes (merged or not) OR
+# when its `preview` label is removed, so a preview can be parked while the PR
+# stays open. Destroying a workspace that never existed is a cheap no-op, so
+# closing a never-labeled PR is fine.
+
+on:
+  pull_request:
+    types: [closed, unlabeled]
+
+# Same group as preview-up.yml so a teardown never races an in-flight apply.
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  down:
+    # `unlabeled` fires once per removed label; only the `preview` label matters.
+    if: ${{ github.event.action == 'closed' || github.event.label.name == 'preview' }}
+    uses: your-org/terraform-aws-lab-platform/.github/workflows/preview-down.yml@main
+    with:
+      preview_name: pr${{ github.event.pull_request.number }}
+      working_directory: infra/preview
+      role_to_assume: ${{ vars.PREVIEW_ROLE_ARN }}
+      cluster_name: ${{ vars.CLUSTER_NAME }}
+      aws_region: ${{ vars.AWS_REGION }}
+      tailscale: true
+    secrets:
+      neon_api_key: ${{ secrets.NEON_API_KEY }}
+      ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}

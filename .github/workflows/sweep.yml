@@ -1,0 +1,32 @@
+name: Preview Sweep
+
+# Nightly belt-and-braces: destroy any pr* preview workspaces whose PR is no
+# longer open (missed teardowns, force-closed PRs, flaky runners).
+
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch: {}
+
+# pull-requests: read is load-bearing — the reusable sweep asks each pr<N>
+# workspace's PR whether it's still open, and a called workflow can't hold
+# permissions its caller didn't grant. Without it (on private repos) every
+# lookup fails and the sweep silently keeps everything.
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: read
+
+jobs:
+  sweep:
+    uses: your-org/terraform-aws-lab-platform/.github/workflows/nightly-sweep.yml@main
+    with:
+      working_directory: infra/preview
+      role_to_assume: ${{ vars.PREVIEW_ROLE_ARN }}
+      cluster_name: ${{ vars.CLUSTER_NAME }}
+      aws_region: ${{ vars.AWS_REGION }}
+      tailscale: true
+    secrets:
+      neon_api_key: ${{ secrets.NEON_API_KEY }}
+      ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}

@@ -1,0 +1,138 @@
+name: Deploy
+
+# main -> prod: build one release image per deployable (podman), migrate the
+# prod database, then roll each deployment. The prod stack sets
+# webapp_ignore_image_changes = true, so `kubectl set image` owns the running
+# tags and terraform never fights it. Tags are deterministic
+# (<name>-main-<sha> plus a <name>-latest alias), so no job depends on build
+# outputs; deployables.json drives the build matrix.
+#
+# Requires (beyond preview.yml's vars): secrets.PROD_DATABASE_URL, and an EKS
+# access entry granting CI_ROLE_ARN edit rights on the webapp and dagster
+# namespaces.
+
+on:
+  push:
+    branches: [main]
+
+# Serialize deploys; a queued newer commit still deploys after the current one.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      deployables: ${{ steps.read.outputs.deployables }}
+      registry: ${{ steps.registry.outputs.registry }}
+      stamp: main-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: read
+        run: echo "deployables=$(jq -c . deployables.json)" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.CI_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - id: registry
+        run: >
+          echo "registry=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com"
+          >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: meta
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: ${{ fromJSON(needs.meta.outputs.deployables) }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.CI_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to ECR (podman)
+        run: >
+          aws ecr get-login-password --region ${{ vars.AWS_REGION }}
+          | podman login --username AWS --password-stdin "${{ needs.meta.outputs.registry }}"
+
+      - name: Build and push
+        env:
+          BASE: ${{ needs.meta.outputs.registry }}/${{ vars.ECR_REPOSITORY }}
+          STAMP: ${{ needs.meta.outputs.stamp }}
+          PKG: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          # A package may override the shared recipe with its own Dockerfile.
+          file="packages/$PKG/Dockerfile"
+          [ -f "$file" ] || file=Dockerfile
+          podman build -f "$file" --build-arg "TARGET_PACKAGE=$PKG" \
+            -t "$BASE:$PKG-$STAMP" -t "$BASE:$PKG-latest" .
+          podman push "$BASE:$PKG-$STAMP"
+          podman push "$BASE:$PKG-latest"
+
+  # Expand-contract migrations: this runs BEFORE the rollout, so schema changes
+  # must stay compatible with the previous app revision until it drains.
+  migrate:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v10.0.1  # no moving tags past v8; exact pin
+        with:
+          version: "0.11.3"
+          enable-cache: true
+
+      # Sync from the root so the dev group's db[migrate] provides alembic.
+      - name: Alembic upgrade head (prod)
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          uv sync --frozen
+          uv run alembic -c packages/db/alembic.ini upgrade head
+
+  deploy:
+    needs: [meta, build, migrate]
+    runs-on: ubuntu-latest
+    env:
+      BASE: ${{ needs.meta.outputs.registry }}/${{ vars.ECR_REPOSITORY }}
+      STAMP: ${{ needs.meta.outputs.stamp }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.CI_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Roll the webapp deployment
+        run: |
+          set -euo pipefail
+          aws eks update-kubeconfig --name "${{ vars.CLUSTER_NAME }}" --region "${{ vars.AWS_REGION }}"
+          # Prod runs with an empty name_prefix: namespace/deployment/container
+          # are all the module's webapp_app_name default ("webapp").
+          kubectl set image deployment/webapp "webapp=$BASE:app-$STAMP" -n webapp
+          kubectl rollout status deployment/webapp -n webapp --timeout=5m
+
+      - name: Roll the Dagster user-code deployment
+        run: |
+          set -euo pipefail
+          # The Dagster chart names user-code deployments dagster-dagster-user-deployments-<name>;
+          # the platform values use a single code location called "user-code".
+          ns="dagster"
+          deploy="$(kubectl get deploy -n "$ns" -l app.kubernetes.io/component=user-deployments -o name | head -n1)"
+          if [ -n "$deploy" ]; then
+            kubectl set image -n "$ns" "$deploy" "*=$BASE:workflows-$STAMP"
+            kubectl rollout status -n "$ns" "$deploy" --timeout=5m
+          else
+            echo "No Dagster user-code deployment found; skipping."
+          fi

@@ -1,0 +1,152 @@
+name: Preview Up
+
+# Label-gated preview loop: previews cost real resources (a node, Neon
+# branches, tailnet devices), so one exists only while its PR wears the
+# `preview` label. Add the label to stand the preview up; each push refreshes
+# it; remove the label (or close the PR) and preview-down.yml tears it down —
+# including parking a preview mid-review without closing the PR.
+#
+# Build one image per deployable (podman — preinstalled on ubuntu runners),
+# stand up (or update) the preview via the platform repo's reusable workflow,
+# then run alembic against the preview's copy-on-write Neon branch.
+#
+# deployables.json is the single source of truth: it drives the build matrix
+# here AND infra/preview derives its image references from the same file, so
+# adding a deployable never touches this workflow. Tags are deterministic
+# (<name>-pr<N>-<sha>), so no job depends on build outputs.
+#
+# Requires (see README "Adopt this template"):
+#   vars:    CI_ROLE_ARN, PREVIEW_ROLE_ARN, CLUSTER_NAME, AWS_REGION, ECR_REPOSITORY
+#   secrets: NEON_API_KEY, TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET
+
+on:
+  pull_request:
+    types: [labeled, synchronize]
+
+# One pipeline per PR; never cancel a terraform apply mid-flight.
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # Every other job `needs` this one (directly or transitively), so this guard
+  # gates the whole run: the exact `preview` label being added, or a push to a
+  # PR that already wears it. Unlabeled PRs skip everything.
+  meta:
+    if: >-
+      ${{ (github.event.action == 'labeled' && github.event.label.name == 'preview')
+      || (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'preview')) }}
+    runs-on: ubuntu-latest
+    outputs:
+      deployables: ${{ steps.read.outputs.deployables }}
+      registry: ${{ steps.registry.outputs.registry }}
+      stamp: pr${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: read
+        run: echo "deployables=$(jq -c . deployables.json)" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.CI_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - id: registry
+        run: >
+          echo "registry=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com"
+          >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: meta
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: ${{ fromJSON(needs.meta.outputs.deployables) }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.CI_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to ECR (podman)
+        run: >
+          aws ecr get-login-password --region ${{ vars.AWS_REGION }}
+          | podman login --username AWS --password-stdin "${{ needs.meta.outputs.registry }}"
+
+      - name: Build and push
+        env:
+          IMAGE: ${{ needs.meta.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ matrix.package }}-${{ needs.meta.outputs.stamp }}
+          PKG: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          # A package may override the shared recipe with its own Dockerfile.
+          file="packages/$PKG/Dockerfile"
+          [ -f "$file" ] || file=Dockerfile
+          podman build -f "$file" --build-arg "TARGET_PACKAGE=$PKG" -t "$IMAGE" .
+          podman push "$IMAGE"
+
+  up:
+    needs: [meta, build]
+    uses: your-org/terraform-aws-lab-platform/.github/workflows/preview-up.yml@main
+    with:
+      preview_name: pr${{ github.event.pull_request.number }}
+      working_directory: infra/preview
+      role_to_assume: ${{ vars.PREVIEW_ROLE_ARN }}
+      cluster_name: ${{ vars.CLUSTER_NAME }}
+      aws_region: ${{ vars.AWS_REGION }}
+      tailscale: true
+      extra_apply_args: -var "image_base=${{ needs.meta.outputs.registry }}/${{ vars.ECR_REPOSITORY }}" -var "image_stamp=${{ needs.meta.outputs.stamp }}"
+    secrets:
+      neon_api_key: ${{ secrets.NEON_API_KEY }}
+      ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
+
+  # Schema of the PR lands on the PR's branched database — prod never sees it.
+  migrate:
+    needs: up
+    runs-on: ubuntu-latest
+    env:
+      PREVIEW_NAME: pr${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.PREVIEW_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.12.6"
+          tofu_wrapper: false
+
+      - uses: astral-sh/setup-uv@v10.0.1  # no moving tags past v8; exact pin
+        with:
+          version: "0.11.3"
+          enable-cache: true
+
+      - name: Read the branched DATABASE_URL from preview state
+        id: dburl
+        working-directory: infra/preview
+        run: |
+          set -euo pipefail
+          tofu init -input=false
+          tofu workspace select "$PREVIEW_NAME"
+          url="$(tofu output -raw app_database_url)"
+          echo "::add-mask::$url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      # Sync from the root so the dev group's db[migrate] provides alembic.
+      - name: Alembic upgrade head (Neon is reachable from the runner)
+        env:
+          DATABASE_URL: ${{ steps.dburl.outputs.url }}
+        run: |
+          uv sync --frozen
+          uv run alembic -c packages/db/alembic.ini upgrade head
