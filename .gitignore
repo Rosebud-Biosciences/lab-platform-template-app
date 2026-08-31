@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+
+# Terraform / OpenTofu
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+*.auto.tfvars
+# ...except the committed, non-secret shared-platform identity CI applies with:
+!infra/preview/shared-platform.auto.tfvars
+
+# Local env
+.env

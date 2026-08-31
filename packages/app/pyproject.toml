@@ -1,0 +1,19 @@
+[project]
+name = "app"
+version = "0.1.0"
+description = "Hello-world FastAPI webapp (the workloads module's enable_webapp target)"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "db",
+    # Reactive notebooks served BY the app (see app.main's /notebooks mount).
+    "marimo>=0.13",
+]
+
+[tool.uv.sources]
+db = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"

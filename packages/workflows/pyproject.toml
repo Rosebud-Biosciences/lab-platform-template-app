@@ -1,0 +1,29 @@
+[project]
+name = "workflows"
+version = "0.1.0"
+description = "Hello-world Dagster definitions (the workloads module's user-code deployment)"
+requires-python = ">=3.14"
+dependencies = [
+    "dagster>=1.10",
+    # db[migrate] (not just db) so the built image can also run
+    # `alembic upgrade head` — the migration Job ships in the same artifact.
+    "db[migrate]",
+    # Core (not an extra) so the fan-out example works out of the box in every
+    # workflows image. Match your cluster's Ray version when using RAY_ADDRESS.
+    "ray>=2.40",
+]
+
+[project.optional-dependencies]
+# The GPU seam: swap torch for your real GPU stack. Never installed by default
+# (not in any sync/CI path); the Dockerfile's gpu-lock stage reads its pin from
+# uv.lock so the heavy wheel layer only rebuilds when the pin changes.
+gpu = [
+    "torch>=2.6",
+]
+
+[tool.uv.sources]
+db = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
