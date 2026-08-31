@@ -15,7 +15,7 @@ from pathlib import Path
 import marimo
 from db.engine import get_engine
 from db.models import Greeting
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
@@ -48,6 +48,24 @@ def engine() -> Engine:
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/whoami")
+def whoami(request: Request) -> dict:
+    """Who the platform says is calling — identity for free on the tailnet.
+
+    Served through the platform's private ingress (a Tailscale Ingress proxy),
+    every request carries the caller's tailnet login in identity headers; and
+    since the tailnet's login provider is your IdP (e.g. Google), that login is
+    a real user identity. No OAuth client, no redirect URIs, no session state —
+    which is exactly what per-PR preview URLs want. Build per-user features on
+    these headers only where the proxy is the sole route to the pod; local dev
+    and in-cluster calls simply see null.
+    """
+    return {
+        "login": request.headers.get("Tailscale-User-Login"),
+        "name": request.headers.get("Tailscale-User-Name"),
+    }
 
 
 @app.get("/")

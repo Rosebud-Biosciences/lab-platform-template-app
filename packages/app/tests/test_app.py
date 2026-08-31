@@ -40,3 +40,16 @@ def test_notebooks_are_mounted(client: TestClient) -> None:
     response = client.get("/notebooks/", follow_redirects=True)
     assert response.status_code == 200
     assert "marimo" in response.text.lower()
+
+
+def test_whoami_reflects_tailnet_identity_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Needs no database: identity comes from the ingress proxy's headers.
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    client = TestClient(main.app)
+
+    # Off the tailnet (local dev, in-cluster) there is simply no identity.
+    assert client.get("/whoami").json() == {"login": None, "name": None}
+
+    # On it, the Tailscale proxy asserts the caller's login on every request.
+    body = client.get("/whoami", headers={"Tailscale-User-Login": "alice@lab.org"}).json()
+    assert body["login"] == "alice@lab.org"
