@@ -1,0 +1,17 @@
+# Read by podman and docker alike. Never let the host venv shadow the image's
+# /app/.venv (COPY . would clobber the freshly synced environment with macOS
+# wheels).
+.venv
+.git
+.jj
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+dist
+.env
+# Not part of the runtime artifact:
+.github
+infra
+compose.yaml
+README.md

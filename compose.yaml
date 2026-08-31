@@ -1,0 +1,57 @@
+# Local hello-world in one command:
+#   podman compose up --build
+# then open http://localhost:8080 — postgres comes up, migrations run once (in
+# the workflows image, which carries alembic via db[migrate]), the webapp
+# serves. Same images + entrypoints the cluster uses. (The file is plain
+# compose spec, so `docker compose` works identically if that's what you have.)
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  migrate:
+    build:
+      context: .
+      args:
+        TARGET_PACKAGE: workflows
+    command: ["alembic", "-c", "packages/db/alembic.ini", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql://app:app@postgres:5432/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    build:
+      context: .
+      args:
+        TARGET_PACKAGE: app
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgresql://app:app@postgres:5432/app
+      APP_ENV: compose
+    # Same probe target the cluster uses; makes `up --wait` actually wait.
+    # (No curl in the slim image, so stdlib does the fetch.)
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
