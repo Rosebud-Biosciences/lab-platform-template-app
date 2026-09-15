@@ -1,0 +1,26 @@
+[project]
+name = "dataset"
+version = "0.1.0"
+description = "The app's tether dataset: manifests for every data object it touches, plus the DATA_REFS contract and native openers"
+requires-python = ">=3.14"
+# The contract itself is dependency-free: parsing DATA_REFS and knowing the
+# keys costs nothing, so the webapp can depend on it without dragging store
+# libraries into its image.
+dependencies = []
+
+[project.optional-dependencies]
+# The native openers (dataset.openers), one library per store kind. Anything
+# that writes to a store -- the workflows image, the matrix -- installs these.
+stores = [
+    "icechunk>=1.0",
+    "zarr>=3",
+    "pyiceberg>=0.10",
+    "pyarrow>=15",
+    "pylance>=1.0",
+    "deltalake>=1.0",
+    "obstore>=0.11",
+]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"

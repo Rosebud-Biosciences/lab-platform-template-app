@@ -13,10 +13,12 @@ dev = [
     # is also carried by the workflows package so the built image can migrate.
     "db[migrate]",
     "ty>=0.0.76",
+    "tether-vcs[cli,delta,iceberg,icechunk,lance,neon,objectstore]>=0.1.0a10",
 ]
 
 [tool.uv.sources]
 db = { workspace = true }
+dataset = { workspace = true }
 
 [tool.ruff]
 target-version = "py314"
@@ -39,6 +41,7 @@ select = [
 [tool.pytest.ini_options]
 testpaths = [
     "packages/app/tests",
+    "packages/dataset/tests",
     "packages/db/tests",
     "packages/workflows/tests",
 ]

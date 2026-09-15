@@ -9,10 +9,13 @@ dependencies = [
     "db",
     # Reactive notebooks served BY the app (see app.main's /notebooks mount).
     "marimo>=0.13",
+    # The DATA_REFS contract (no store libraries): /data shows what the app is wired to.
+    "dataset",
 ]
 
 [tool.uv.sources]
 db = { workspace = true }
+dataset = { workspace = true }
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]
