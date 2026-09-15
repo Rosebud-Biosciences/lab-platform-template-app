@@ -2,7 +2,9 @@
 
 Deliberately tiny — the point is the wiring, not the workload: assets read
 DATABASE_URL exactly like the webapp does, so in a preview they write to that
-preview's copy-on-write Neon branch and in prod to the real database.
+preview's copy-on-write Neon branch and in prod to the real database. The
+same idea extends to every other store through DATA_REFS (the ``dataset``
+package): see ``workflows.stores`` for one asset per store kind.
 """
 
 import os
@@ -13,6 +15,8 @@ from db.engine import get_engine
 from db.models import Greeting
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+
+from workflows.stores import STORE_ASSETS, data_stores_job
 
 
 @dg.asset
@@ -135,8 +139,8 @@ daily_greeting = dg.ScheduleDefinition(
 )
 
 defs = dg.Definitions(
-    assets=[scheduled_greeting, ray_fanned_greetings, greetings_digest],
-    jobs=[greet_job, ray_fanout_job, stream_digest_job],
+    assets=[scheduled_greeting, ray_fanned_greetings, greetings_digest, *STORE_ASSETS],
+    jobs=[greet_job, ray_fanout_job, stream_digest_job, data_stores_job],
     schedules=[daily_greeting],
     sensors=[greeting_stream_sensor],
 )

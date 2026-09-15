@@ -12,6 +12,7 @@ Runtime contract with the platform's workloads module:
 import os
 from pathlib import Path
 
+import dataset
 import marimo
 from db.engine import get_engine
 from db.models import Greeting
@@ -66,6 +67,25 @@ def whoami(request: Request) -> dict:
         "login": request.headers.get("Tailscale-User-Login"),
         "name": request.headers.get("Tailscale-User-Name"),
     }
+
+
+@app.get("/data")
+def data() -> dict:
+    """Which state of which data object this deployment is wired to.
+
+    The DATA_REFS contract (the ``dataset`` package) as the pods received it:
+    in a preview, branches of the forked (or stamped) stores; in prod, ``main``
+    at the real locations; on a laptop, paths under DATA_ROOT. Handy on a
+    preview URL to confirm the PR is looking at its own fork, and a small
+    example of the app knowing its dataset without touching a store.
+    """
+    return {
+        key: {"location": r.location, "ref": r.ref, "pinned": r.pinned} for key, r in _data_refs()
+    }
+
+
+def _data_refs() -> list[tuple[str, dataset.Ref]]:
+    return [(key, dataset.parse(key, address)) for key, address in sorted(dataset.refs().items())]
 
 
 @app.get("/")

@@ -53,3 +53,21 @@ def test_whoami_reflects_tailnet_identity_headers(monkeypatch: pytest.MonkeyPatc
     # On it, the Tailscale proxy asserts the caller's login on every request.
     body = client.get("/whoami", headers={"Tailscale-User-Login": "alice@lab.org"}).json()
     assert body["login"] == "alice@lab.org"
+
+
+def test_data_reports_the_refs_the_pod_received(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Needs no database and no store library: the contract is just parsed.
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv(
+        "DATA_REFS",
+        '{"zarr/greetings": "s3://prod-data/tether/greetings.icechunk#tether.ws.6e117556.pr7",'
+        ' "delta/greetings_log": "s3://prod-data/tether/greetings_log.delta@v12"}',
+    )
+    body = TestClient(main.app).get("/data").json()
+
+    assert body["zarr/greetings"] == {
+        "location": "s3://prod-data/tether/greetings.icechunk",
+        "ref": "tether.ws.6e117556.pr7",
+        "pinned": False,
+    }
+    assert body["delta/greetings_log"]["pinned"] is True
