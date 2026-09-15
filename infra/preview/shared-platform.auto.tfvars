@@ -10,6 +10,19 @@ vpc_name                     = "vpc-prod"
 karpenter_node_iam_role_name = "eks-prod-karpenter-node"
 private_ingress_dns_suffix   = "tailXXXX.ts.net"
 
+# Where the data objects in packages/dataset/.tether/objects/ live (README
+# "Ephemeral data").
+# tofu mode needs only iceberg_table_bucket_arn (for the ephemeral namespace);
+# tether mode also grants the pods access to these prod stores. Leave
+# iceberg_table_bucket_arn empty to skip Iceberg entirely.
+data_bucket_arn          = "arn:aws:s3:::your-data-bucket"
+iceberg_table_bucket_arn = "arn:aws:s3tables:us-west-2:123456789012:bucket/your-table-bucket"
+iceberg_read_namespaces  = ["lake"]
+# tether mode: the prod tables whose branches previews write (one ARN per
+# iceberg object in the dataset; `aws s3tables get-table` prints it).
+iceberg_table_arns = []
+
+# tofu mode only; tether forks the Neon project itself.
 neon_branch_sources = {
   app = {
     project_id       = "prod-app-project"

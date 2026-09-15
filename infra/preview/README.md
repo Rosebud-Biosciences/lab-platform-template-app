@@ -12,9 +12,16 @@ What a preview contains:
   private (tailnet) ingress: `https://pr123-webapp.<tailnet>.ts.net`.
 - **Dagster** — same image as the code location (`packages/workflows`), with
   its run storage on a branched database.
-- **Neon branches** — copy-on-write clones of the prod `app` and `dagster`
-  databases; the PR's alembic migrations run against the `app` branch.
-- **Ephemeral bucket** — anything the preview writes to object storage.
+- **Its data**, from one of two providers (`fork_provider`, README "Ephemeral
+  data"). `tofu` (default): copy-on-write Neon branches of the prod `app` and
+  `dagster` databases (the PR's alembic migrations run against the `app`
+  branch), an ephemeral bucket for every other store, an ephemeral Iceberg
+  namespace when `iceberg_table_bucket_arn` is set — all destroyed with the
+  stack. `tether`: CI forks the production stores first and passes
+  `database_url` / `dagster_db_*` / `data_refs` in (`external.auto.tfvars.json`
+  via the reusable workflow's `extra_tfvars_json`); this stack then only grants
+  the pods access to those stores (`data-access`). Either way the pods get
+  `DATABASE_URL` + `DATA_REFS` (`data.tf`).
 - **A small Karpenter NodePool** — scales to zero when idle.
 
 CI drives this stack via the platform repo's reusable workflows
@@ -32,8 +39,11 @@ tofu workspace select -or-create pr123
 tofu apply -var preview_name=pr123 \
   -var image_base=<account>.dkr.ecr.<region>.amazonaws.com/template-app \
   -var image_stamp=pr123-<sha>
-# ...
-tofu destroy -var preview_name=pr123   # image vars have defaults for destroy
+# tether mode by hand: fork first, then feed the stack what the fork printed
+#   uv run tether new -b pr123 --eager
+#   .github/scripts/tether-open-all.sh > infra/preview/external.auto.tfvars.json
+#   tofu apply -var preview_name=pr123 -var fork_provider=tether ...
+tofu destroy -var preview_name=pr123   # image + tether-mode vars have defaults for destroy
 tofu workspace select default && tofu workspace delete pr123
 ```
 
