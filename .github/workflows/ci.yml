@@ -9,7 +9,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # setup-uv stopped publishing moving major tags at v8; pin the full
       # version (dependabot bumps exact pins).

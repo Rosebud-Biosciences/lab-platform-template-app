@@ -32,7 +32,7 @@ jobs:
       registry: ${{ steps.registry.outputs.registry }}
       stamp: main-${{ github.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - id: read
         run: echo "deployables=$(jq -c . deployables.json)" >> "$GITHUB_OUTPUT"
@@ -54,7 +54,7 @@ jobs:
       matrix:
         package: ${{ fromJSON(needs.meta.outputs.deployables) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -87,7 +87,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@v10.0.1  # no moving tags past v8; exact pin
         with:

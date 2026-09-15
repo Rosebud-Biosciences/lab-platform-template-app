@@ -64,7 +64,7 @@ jobs:
     steps:
       # The PR's merge ref is gone once it closes; work from the default branch
       # and let the script fetch the bookmarks it needs.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
           submodules: true # a dataset consumed from its own repo rides in as a submodule
