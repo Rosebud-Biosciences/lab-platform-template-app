@@ -57,7 +57,7 @@ jobs:
       registry: ${{ steps.registry.outputs.registry }}
       stamp: pr${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - id: read
         run: echo "deployables=$(jq -c . deployables.json)" >> "$GITHUB_OUTPUT"
@@ -79,7 +79,7 @@ jobs:
       matrix:
         package: ${{ fromJSON(needs.meta.outputs.deployables) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -123,7 +123,7 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       DATASET_ROOT: ${{ vars.DATASET_ROOT || 'packages/dataset' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           submodules: true # a dataset consumed from its own repo rides in as a submodule
@@ -133,7 +133,7 @@ jobs:
           role-to-assume: ${{ vars.DATA_ROLE_ARN || vars.PREVIEW_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - uses: astral-sh/setup-uv@v10.0.1  # no moving tags past v8; exact pin
+      - uses: astral-sh/setup-uv@v10.1.0  # no moving tags past v8; exact pin
         with:
           version: "0.11.3"
           enable-cache: true
@@ -148,7 +148,7 @@ jobs:
   up:
     needs: [meta, build, fork-data]
     if: ${{ !cancelled() && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.fork-data.result) }}
-    uses: your-org/terraform-aws-lab-platform/.github/workflows/preview-up.yml@main
+    uses: Rosebud-Biosciences/terraform-aws-lab-platform/.github/workflows/preview-up.yml@main
     with:
       preview_name: pr${{ github.event.pull_request.number }}
       working_directory: infra/preview
@@ -173,19 +173,19 @@ jobs:
     env:
       PREVIEW_NAME: pr${{ github.event.pull_request.number }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.PREVIEW_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - uses: opentofu/setup-opentofu@v1
+      - uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: "1.12.6"
           tofu_wrapper: false
 
-      - uses: astral-sh/setup-uv@v10.0.1  # no moving tags past v8; exact pin
+      - uses: astral-sh/setup-uv@v10.1.0  # no moving tags past v8; exact pin
         with:
           version: "0.11.3"
           enable-cache: true

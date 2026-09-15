@@ -36,7 +36,7 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       DATASET_ROOT: ${{ vars.DATASET_ROOT || 'packages/dataset' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
           submodules: true # a dataset consumed from its own repo rides in as a submodule
@@ -46,7 +46,7 @@ jobs:
           role-to-assume: ${{ vars.DATA_ROLE_ARN || vars.PREVIEW_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - uses: astral-sh/setup-uv@v10.0.1  # no moving tags past v8; exact pin
+      - uses: astral-sh/setup-uv@v10.1.0  # no moving tags past v8; exact pin
         with:
           version: "0.11.3"
           enable-cache: true
@@ -69,7 +69,7 @@ jobs:
           echo "attention=$([ "$code" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       - name: Track in an issue
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           ATTENTION: ${{ steps.matrix.outputs.attention }}
           REPORT: ${{ runner.temp }}/matrix-report.md

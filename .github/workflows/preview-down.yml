@@ -30,7 +30,7 @@ jobs:
   down:
     # `unlabeled` fires once per removed label; only the `preview` label matters.
     if: ${{ github.event.action == 'closed' || github.event.label.name == 'preview' }}
-    uses: your-org/terraform-aws-lab-platform/.github/workflows/preview-down.yml@main
+    uses: Rosebud-Biosciences/terraform-aws-lab-platform/.github/workflows/preview-down.yml@main
     with:
       preview_name: pr${{ github.event.pull_request.number }}
       working_directory: infra/preview
@@ -64,7 +64,7 @@ jobs:
     steps:
       # The PR's merge ref is gone once it closes; work from the default branch
       # and let the script fetch the bookmarks it needs.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
           submodules: true # a dataset consumed from its own repo rides in as a submodule
@@ -74,7 +74,7 @@ jobs:
           role-to-assume: ${{ vars.DATA_ROLE_ARN || vars.PREVIEW_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - uses: astral-sh/setup-uv@v10.0.1  # no moving tags past v8; exact pin
+      - uses: astral-sh/setup-uv@v10.1.0  # no moving tags past v8; exact pin
         with:
           version: "0.11.3"
           enable-cache: true
