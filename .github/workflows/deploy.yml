@@ -89,7 +89,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: astral-sh/setup-uv@v10.0.1  # no moving tags past v8; exact pin
+      - uses: astral-sh/setup-uv@v10.1.0  # no moving tags past v8; exact pin
         with:
           version: "0.11.3"
           enable-cache: true

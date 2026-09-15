@@ -133,7 +133,7 @@ jobs:
           role-to-assume: ${{ vars.DATA_ROLE_ARN || vars.PREVIEW_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - uses: astral-sh/setup-uv@v10.0.1  # no moving tags past v8; exact pin
+      - uses: astral-sh/setup-uv@v10.1.0  # no moving tags past v8; exact pin
         with:
           version: "0.11.3"
           enable-cache: true
@@ -185,7 +185,7 @@ jobs:
           tofu_version: "1.12.6"
           tofu_wrapper: false
 
-      - uses: astral-sh/setup-uv@v10.0.1  # no moving tags past v8; exact pin
+      - uses: astral-sh/setup-uv@v10.1.0  # no moving tags past v8; exact pin
         with:
           version: "0.11.3"
           enable-cache: true
