@@ -15,8 +15,19 @@ name: Preview Up
 # adding a deployable never touches this workflow. Tags are deterministic
 # (<name>-pr<N>-<sha>), so no job depends on build outputs.
 #
+# The preview's DATA has two providers (README "Ephemeral data"). With the
+# FORK_PROVIDER repository variable unset or "tofu", the stack stamps isolated
+# empty copies and this workflow is the loop above. With "tether", the
+# fork-data job first forks the PRODUCTION stores with tether (one branch per
+# store per PR) and hands the addresses to the stack through the reusable
+# workflow's extra_tfvars_json; nothing else changes. Both end in the same
+# pods contract, DATABASE_URL + DATA_REFS.
+#
 # Requires (see README "Adopt this template"):
 #   vars:    CI_ROLE_ARN, PREVIEW_ROLE_ARN, CLUSTER_NAME, AWS_REGION, ECR_REPOSITORY
+#            tether mode: FORK_PROVIDER=tether, optionally DATA_ROLE_ARN (a role
+#            holding the data-access policy; defaults to PREVIEW_ROLE_ARN) and
+#            DATASET_ROOT (where tether.toml lives; default packages/dataset)
 #   secrets: NEON_API_KEY, TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET
 
 on:
@@ -92,8 +103,51 @@ jobs:
           podman build -f "$file" --build-arg "TARGET_PACKAGE=$PKG" -t "$IMAGE" .
           podman push "$IMAGE"
 
+  # tether mode only: fork every registered store onto bookmark pr<N> and emit
+  # the fork's addresses + database URL for the stack. Checks out the PR HEAD
+  # (not the merge ref) so the bookmark names a commit that exists on the PR,
+  # and needs contents: write to push it. Forks require the data-plane rights of
+  # modules/data-access, which DATA_ROLE_ARN carries (falls back to the preview
+  # role -- grant it the policy). A failed fork fails the preview, loudly.
+  fork-data:
+    needs: meta
+    if: ${{ vars.FORK_PROVIDER == 'tether' }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    outputs:
+      tfvars_b64: ${{ steps.fork.outputs.tfvars_b64 }}
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      DATASET_ROOT: ${{ vars.DATASET_ROOT || 'packages/dataset' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: true # a dataset consumed from its own repo rides in as a submodule
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.DATA_ROLE_ARN || vars.PREVIEW_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: astral-sh/setup-uv@v10.0.1  # no moving tags past v8; exact pin
+        with:
+          version: "0.11.3"
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - id: fork
+        run: .github/scripts/tether-fork.sh "pr${{ github.event.pull_request.number }}"
+
+  # Skipped fork-data (tofu mode) must not skip this job, hence the explicit
+  # result check instead of the default all-succeeded rule.
   up:
-    needs: [meta, build]
+    needs: [meta, build, fork-data]
+    if: ${{ !cancelled() && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.fork-data.result) }}
     uses: your-org/terraform-aws-lab-platform/.github/workflows/preview-up.yml@main
     with:
       preview_name: pr${{ github.event.pull_request.number }}
@@ -102,13 +156,17 @@ jobs:
       cluster_name: ${{ vars.CLUSTER_NAME }}
       aws_region: ${{ vars.AWS_REGION }}
       tailscale: true
-      extra_apply_args: -var "image_base=${{ needs.meta.outputs.registry }}/${{ vars.ECR_REPOSITORY }}" -var "image_stamp=${{ needs.meta.outputs.stamp }}"
+      extra_apply_args: -var "image_base=${{ needs.meta.outputs.registry }}/${{ vars.ECR_REPOSITORY }}" -var "image_stamp=${{ needs.meta.outputs.stamp }}" -var "fork_provider=${{ vars.FORK_PROVIDER || 'tofu' }}"
     secrets:
       neon_api_key: ${{ secrets.NEON_API_KEY }}
       ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
+      # Empty in tofu mode (the job was skipped); the reusable workflow ignores it.
+      extra_tfvars_json: ${{ needs.fork-data.outputs.tfvars_b64 }}
 
   # Schema of the PR lands on the PR's branched database — prod never sees it.
+  # `tofu output app_database_url` is the tofu-mode Neon branch or the
+  # tether-mode fork alike: the stack records whichever it was given.
   migrate:
     needs: up
     runs-on: ubuntu-latest

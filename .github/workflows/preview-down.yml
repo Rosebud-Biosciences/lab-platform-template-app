@@ -5,6 +5,13 @@ name: Preview Down
 # when its `preview` label is removed, so a preview can be parked while the PR
 # stays open. Destroying a workspace that never existed is a cheap no-op, so
 # closing a never-labeled PR is fine.
+#
+# tether mode (FORK_PROVIDER=tether) adds data-down AFTER the destroy, once the
+# pods have stopped writing: a merged PR's forks are fast-forwarded onto prod
+# where the store allows it (PROMOTABLE_KEYS), then the bookmark's branches are
+# released in every store; an unmerged or parked PR's forks are simply
+# released, and any store the PR itself created is deleted. See
+# .github/scripts/tether-down.sh for the order and the reasons.
 
 on:
   pull_request:
@@ -35,3 +42,43 @@ jobs:
       neon_api_key: ${{ secrets.NEON_API_KEY }}
       ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
+
+  data-down:
+    needs: down
+    if: ${{ !cancelled() && needs.down.result == 'success' && vars.FORK_PROVIDER == 'tether' && (github.event.action == 'closed' || github.event.label.name == 'preview') }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write # deletes the pr<N> bookmark branch
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      # Stores `promote` may fast-forward: Icechunk and Iceberg. Lance cannot
+      # move a branch head and Neon cannot promote; Delta and file objects are
+      # never forked.
+      PROMOTABLE_KEYS: zarr/greetings lake/greetings_daily
+      # Prefix under which a PR-created store may be deleted on abandon; unset
+      # skips that step.
+      DATA_ROOT_URI: ${{ vars.DATA_ROOT_URI }}
+      DATASET_ROOT: ${{ vars.DATASET_ROOT || 'packages/dataset' }}
+    steps:
+      # The PR's merge ref is gone once it closes; work from the default branch
+      # and let the script fetch the bookmarks it needs.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          submodules: true # a dataset consumed from its own repo rides in as a submodule
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.DATA_ROLE_ARN || vars.PREVIEW_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: astral-sh/setup-uv@v10.0.1  # no moving tags past v8; exact pin
+        with:
+          version: "0.11.3"
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - run: .github/scripts/tether-down.sh "pr${{ github.event.pull_request.number }}" "${{ github.event.pull_request.merged }}"

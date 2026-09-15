@@ -29,3 +29,12 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+
+  # A dataset consumed from its own repository arrives as a git submodule
+  # (README "Where the dataset lives"); data-pull.yml commits to THAT repo, so
+  # the pointer here trails it until bumped. Uncomment to have Dependabot open
+  # the bump PRs -- harmless noise otherwise, hence off while there is none.
+  # - package-ecosystem: "gitsubmodule"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "daily"

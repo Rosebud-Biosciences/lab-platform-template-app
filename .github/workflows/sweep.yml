@@ -1,7 +1,9 @@
 name: Preview Sweep
 
 # Nightly belt-and-braces: destroy any pr* preview workspaces whose PR is no
-# longer open (missed teardowns, force-closed PRs, flaky runners).
+# longer open (missed teardowns, force-closed PRs, flaky runners). In tether
+# mode the same sweep then retires any pr* tether bookmark whose PR is closed,
+# with the same land-or-release rules as preview-down.yml's data-down.
 
 on:
   schedule:
@@ -30,3 +32,52 @@ jobs:
       neon_api_key: ${{ secrets.NEON_API_KEY }}
       ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
+
+  tether-sweep:
+    needs: sweep
+    if: ${{ !cancelled() && vars.FORK_PROVIDER == 'tether' }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write # deletes retired pr<N> bookmark branches
+      pull-requests: read
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      PROMOTABLE_KEYS: zarr/greetings lake/greetings_daily
+      DATA_ROOT_URI: ${{ vars.DATA_ROOT_URI }}
+      GH_TOKEN: ${{ github.token }}
+      DATASET_ROOT: ${{ vars.DATASET_ROOT || 'packages/dataset' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true # a dataset consumed from its own repo rides in as a submodule
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.DATA_ROLE_ARN || vars.PREVIEW_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: astral-sh/setup-uv@v10.0.1  # no moving tags past v8; exact pin
+        with:
+          version: "0.11.3"
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - name: Retire bookmarks of closed PRs
+        run: |
+          set -euo pipefail
+          # Bookmarks live in the repository that holds the dataset (tether-env.sh).
+          for ref in $(git -C "$DATASET_ROOT" ls-remote --heads origin 'pr[0-9]*' | awk '{print $2}'); do
+            bookmark="${ref#refs/heads/}"
+            number="${bookmark#pr}"
+            state=$(gh pr view "$number" --json state,mergedAt --jq '[.state, (.mergedAt != null)] | @tsv' 2>/dev/null || echo "UNKNOWN	false")
+            IFS=$'\t' read -r pr_state merged <<<"$state"
+            case "$pr_state" in
+              OPEN) echo "$bookmark: PR open, keeping its forks" ;;
+              UNKNOWN) echo "::warning::$bookmark: could not look up PR #$number; keeping its forks" ;;
+              *) echo "$bookmark: PR $pr_state (merged=$merged), retiring"
+                 .github/scripts/tether-down.sh "$bookmark" "$merged" ;;
+            esac
+          done

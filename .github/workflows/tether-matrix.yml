@@ -1,0 +1,116 @@
+name: tether matrix
+
+# tether's live test against the real services, on this repo's budget. tether's
+# Neon and Iceberg backends are `experimental` -- tested against a fake of the
+# service, never the service itself -- and this repo happens to have every
+# backend it registers wired to a real Neon project, S3 bucket and S3 Tables
+# bucket. So, weekly: fork every store, write to each fork through the app's
+# own Dagster assets, pin, diff, plan a promote (dry run), release. One row per
+# backend, tracked in one self-refreshing issue like chart-drift.
+#
+# OFF by default. It costs real money (Neon compute wakes, S3 requests) and
+# needs real stores behind the placeholder locators in .tether/objects/, so it
+# is gated on the ENABLE_TETHER_MATRIX repository variable, the way the
+# platform gates integration-apply. Nothing here writes to a production `main`
+# branch: promote is --dry-run and the fork is released on the way out.
+#
+# Requires: vars ENABLE_TETHER_MATRIX=true, AWS_REGION, DATA_ROLE_ARN (or
+# PREVIEW_ROLE_ARN) holding the data-access policy; secret NEON_API_KEY.
+
+on:
+  schedule:
+    - cron: "0 15 * * 1" # Mondays 15:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
+jobs:
+  matrix:
+    if: ${{ vars.ENABLE_TETHER_MATRIX == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      DATASET_ROOT: ${{ vars.DATASET_ROOT || 'packages/dataset' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          submodules: true # a dataset consumed from its own repo rides in as a submodule
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.DATA_ROLE_ARN || vars.PREVIEW_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: astral-sh/setup-uv@v10.0.1  # no moving tags past v8; exact pin
+        with:
+          version: "0.11.3"
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - name: Run the matrix
+        id: matrix
+        env:
+          REPORT: ${{ runner.temp }}/matrix-report.md
+        run: |
+          set -uo pipefail
+          code=0
+          .github/scripts/tether-matrix.sh || code=$?
+          if [ "$code" -ne 0 ] && [ "$code" -ne 2 ]; then
+            echo "::error::tether-matrix.sh failed with exit $code"
+            exit 1
+          fi
+          cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+          echo "attention=$([ "$code" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Track in an issue
+        uses: actions/github-script@v8
+        env:
+          ATTENTION: ${{ steps.matrix.outputs.attention }}
+          REPORT: ${{ runner.temp }}/matrix-report.md
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- tether-matrix -->';
+            const title = 'tether matrix: a backend failed against the live service';
+            const report = fs.readFileSync(process.env.REPORT, 'utf8');
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const { owner, repo } = context.repo;
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', per_page: 100,
+            });
+            const existing = open.find(i => (i.body ?? '').includes(marker));
+
+            if (process.env.ATTENTION !== 'true') {
+              if (existing) {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: existing.number,
+                  body: `Resolved: every backend passed as of [this run](${run}).\n\n${report}`,
+                });
+                await github.rest.issues.update({
+                  owner, repo, issue_number: existing.number, state: 'closed',
+                });
+              }
+              return;
+            }
+
+            const body = [
+              marker,
+              report,
+              `Refreshed in place by [tether matrix](${run}) weekly, and closed`,
+              'automatically once every backend passes. A failing row is either a',
+              'tether backend bug (report it upstream with the detail column) or a',
+              'store this repo has not set up behind its placeholder locators.',
+            ].join('\n');
+
+            if (existing) {
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title, body });
+            }

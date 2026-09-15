@@ -1,0 +1,81 @@
+name: Data pull
+
+# Nightly: record what moved in production data. `tether pull` on main reads
+# every registered object's upstream branch (and the branch-less objects
+# themselves), pins what changed, and commits the manifests -- so main always
+# names a recent, reproducible state of prod's data. That state is also what a
+# tether-mode preview forks from (`tether new -b pr<N> --eager` forks the pins
+# main names), so a preview is at most a night behind prod. `verify` then
+# checks every pin still resolves, the day one stops rather than the day it is
+# needed.
+#
+# Useful in BOTH data-provider modes: with tofu forking the previews, this is
+# still the record of which prod state each dataset commit describes.
+#
+# Pushes to main directly. If main is protected, swap the push for a PR (e.g.
+# peter-evans/create-pull-request) -- the commit is small and mechanical.
+#
+# Requires: secrets NEON_API_KEY; vars AWS_REGION and DATA_ROLE_ARN (or
+# PREVIEW_ROLE_ARN) holding the data-access policy -- pins are tags written
+# into the stores.
+
+on:
+  schedule:
+    - cron: "43 8 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      DATASET_ROOT: ${{ vars.DATASET_ROOT || 'packages/dataset' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          submodules: true # a dataset consumed from its own repo rides in as a submodule
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.DATA_ROLE_ARN || vars.PREVIEW_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: astral-sh/setup-uv@v10.0.1  # no moving tags past v8; exact pin
+        with:
+          version: "0.11.3"
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      # Runs against the repository that holds the dataset (tether-env.sh): this
+      # one for packages/dataset; for a submodule, the dataset repo -- whose
+      # default branch is checked out first, since a submodule arrives detached,
+      # and which the submodule pointer here then trails (Dependabot's
+      # gitsubmodule ecosystem bumps it; see .github/dependabot.yml).
+      - name: Pull what moved, push the manifests
+        run: |
+          set -euo pipefail
+          source .github/scripts/tether-env.sh
+          default=$(dgit symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || echo main)
+          dgit checkout --quiet "$default" 2>/dev/null || true
+          before=$(dgit rev-parse HEAD)
+          tether pull -m "data: nightly pull of what moved upstream"
+          if [ "$(dgit rev-parse HEAD)" != "$before" ]; then
+            dgit push --quiet origin "HEAD:$default"
+            echo "Pulled and pushed $(dgit log --oneline "$before..HEAD" | wc -l | tr -d ' ') dataset commit(s)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Nothing moved upstream since the last pull." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Exit 1 when a pin no longer resolves: the job goes red, which is the
+      # point -- a recorded state that can no longer be opened is a finding.
+      - name: Verify every pin still resolves
+        run: |
+          source .github/scripts/tether-env.sh
+          tether verify | tee -a "$GITHUB_STEP_SUMMARY"
