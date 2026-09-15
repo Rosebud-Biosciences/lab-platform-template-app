@@ -1,0 +1,12 @@
+key = "db/app"
+kind = "neon"
+recoverable = true
+
+[locator]
+project_id = "your-neon-project"
+database = "app"
+role = "app"
+
+[policy]
+file = "immutable"
+pin = "record"

@@ -1,0 +1,11 @@
+key = "delta/greetings_log"
+kind = "delta"
+recoverable = true
+
+[locator]
+uri = "s3://your-data-bucket/tether/greetings_log.delta"
+region = "us-west-2"
+
+[policy]
+file = "immutable"
+pin = "native"

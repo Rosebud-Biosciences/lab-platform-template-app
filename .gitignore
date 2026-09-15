@@ -17,3 +17,9 @@ terraform.tfvars
 
 # Local env
 .env
+
+# Local data stores (workflows/data.py's DATA_ROOT default when DATA_REFS is unset)
+.data/
+
+# tether-mode tfvars a CI job (or you, by hand) hands the preview stack
+infra/preview/external.auto.tfvars.json

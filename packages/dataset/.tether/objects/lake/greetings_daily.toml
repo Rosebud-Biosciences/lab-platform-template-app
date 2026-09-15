@@ -1,0 +1,11 @@
+key = "lake/greetings_daily"
+kind = "iceberg"
+recoverable = true
+
+[locator]
+identifier = "lake.greetings_daily"
+catalog_name = "s3tables"
+
+[policy]
+file = "immutable"
+pin = "record"

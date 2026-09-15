@@ -1,0 +1,11 @@
+key = "zarr/greetings"
+kind = "icechunk"
+recoverable = true
+
+[locator]
+uri = "s3://your-data-bucket/tether/greetings.icechunk"
+region = "us-west-2"
+
+[policy]
+file = "immutable"
+pin = "native"

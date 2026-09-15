@@ -1,0 +1,12 @@
+key = "db/dagster"
+kind = "neon"
+recoverable = true
+
+[locator]
+project_id = "your-neon-project"
+database = "dagster"
+role = "dagster"
+
+[policy]
+file = "immutable"
+pin = "record"

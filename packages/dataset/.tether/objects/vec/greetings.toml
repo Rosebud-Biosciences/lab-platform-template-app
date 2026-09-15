@@ -1,0 +1,10 @@
+key = "vec/greetings"
+kind = "lance"
+recoverable = true
+
+[locator]
+uri = "s3://your-data-bucket/tether/greetings.lance"
+
+[policy]
+file = "immutable"
+pin = "native"

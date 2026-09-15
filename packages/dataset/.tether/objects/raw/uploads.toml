@@ -1,0 +1,10 @@
+key = "raw/uploads"
+kind = "file"
+recoverable = true
+
+[locator]
+uri = "s3://your-data-bucket/raw/uploads/"
+
+[policy]
+file = "immutable"
+pin = "native"
