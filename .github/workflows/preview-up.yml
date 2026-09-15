@@ -180,7 +180,7 @@ jobs:
           role-to-assume: ${{ vars.PREVIEW_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - uses: opentofu/setup-opentofu@v1
+      - uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: "1.12.6"
           tofu_wrapper: false
