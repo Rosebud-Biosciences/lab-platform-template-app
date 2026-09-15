@@ -17,7 +17,9 @@
 # Both end in the same pod contract -- DATABASE_URL + DATA_REFS -- so the app
 # never learns which. See data.tf and README "Ephemeral data".
 #
-# Replace `your-org` (and ?ref=) with your fork/release of the platform repo.
+# Module sources point at the upstream platform repo; a fork of the platform
+# replaces the org, and everyone pins ?ref= to a release tag. (A module source
+# is a literal: no variable can stand in for the org.)
 # ------------------------------------------------------------------------------
 
 locals {
@@ -48,7 +50,7 @@ locals {
 
 module "storage" {
   count  = local.tofu_forks ? 1 : 0
-  source = "github.com/your-org/terraform-aws-lab-platform//modules/preview-storage?ref=main"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/preview-storage?ref=main"
 
   name_prefix = var.preview_name
   tags        = local.preview_tags
@@ -56,7 +58,7 @@ module "storage" {
 
 module "neon" {
   count  = local.neon_enabled ? 1 : 0
-  source = "github.com/your-org/terraform-aws-lab-platform//modules/neon-branches?ref=main"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/neon-branches?ref=main"
 
   providers = { neon = neon }
 
@@ -69,7 +71,7 @@ module "neon" {
 # before destroy (see the module README).
 module "iceberg" {
   count  = local.iceberg_enabled ? 1 : 0
-  source = "github.com/your-org/terraform-aws-lab-platform//modules/iceberg-branches?ref=main"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/iceberg-branches?ref=main"
 
   name_prefix      = var.preview_name
   table_bucket_arn = var.iceberg_table_bucket_arn
@@ -86,7 +88,7 @@ module "iceberg" {
 
 module "data_access" {
   count  = local.tether_forks ? 1 : 0
-  source = "github.com/your-org/terraform-aws-lab-platform//modules/data-access?ref=main"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/data-access?ref=main"
 
   name       = "${var.preview_name}-data-access"
   bucket_arn = var.data_bucket_arn
@@ -129,7 +131,7 @@ locals {
 }
 
 module "workloads" {
-  source = "github.com/your-org/terraform-aws-lab-platform//modules/workloads?ref=main"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/workloads?ref=main"
 
   providers = {
     aws        = aws

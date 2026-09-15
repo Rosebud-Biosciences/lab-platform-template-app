@@ -1,6 +1,6 @@
 # Preview stack (one Terraform workspace per PR)
 
-This is this app's copy of the platform's [preview pattern](https://github.com/your-org/terraform-aws-lab-platform/blob/main/docs/preview-environments.md):
+This is this app's copy of the platform's [preview pattern](https://github.com/Rosebud-Biosciences/terraform-aws-lab-platform/blob/main/docs/preview-environments.md):
 everything is stamped with `pr<N>-`, lands on the **shared** cluster, and is
 destroyed when the PR closes. The app repo owns this stack so the preview shape
 (which workloads, which image) evolves with the app, while the mechanics come
@@ -51,5 +51,5 @@ Before first use, replace the placeholders in:
 
 - `backend.tf` — your state bucket / lock table (bootstrap module outputs);
 - `shared-platform.auto.tfvars` — your cluster/VPC/Karpenter/Neon identity;
-- the `github.com/your-org/...?ref=main` module sources — your fork and a
-  pinned release tag.
+- the `github.com/Rosebud-Biosciences/...?ref=main` module sources — a pinned
+  release tag (and your fork, if you forked the platform too).

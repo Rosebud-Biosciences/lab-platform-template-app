@@ -1,7 +1,7 @@
 # lab-platform template app
 
 A hello-world consumer of
-[terraform-aws-lab-platform](https://github.com/your-org/terraform-aws-lab-platform):
+[terraform-aws-lab-platform](https://github.com/Rosebud-Biosciences/terraform-aws-lab-platform):
 a `uv` workspace with a database, a webapp, and a Dagster pipeline, plus CI
 that gives every pull request its **own preview environment** — branched
 database included — and deploys `main` to prod. Every piece is deliberately
@@ -203,7 +203,7 @@ lives in a repository of its own. Bring it into this repo as a git submodule
 and point the tether machinery at it:
 
 ```shell
-git submodule add git@github.com:your-org/lab-dataset.git datasets/lab
+git submodule add git@github.com:Rosebud-Biosciences/lab-dataset.git datasets/lab
 # repository variable DATASET_ROOT=datasets/lab
 ```
 
@@ -279,8 +279,11 @@ operator (`examples/complete`), the bootstrap stack's CI/preview OIDC roles and
 state bucket (`modules/bootstrap`), an ECR repository, and Neon projects for
 `app` and `dagster`.
 
-1. Find-and-replace `your-org` (workflow `uses:` lines, module sources, links),
-   and pin `?ref=main` to a platform release tag.
+1. The `Rosebud-Biosciences/terraform-aws-lab-platform` references (workflow
+   `uses:` lines, `infra/preview` module sources, links) point at the upstream
+   platform repo. Forking the platform too? Find-and-replace them with your
+   fork. Either way, pin `?ref=main` to a platform release tag. (Neither
+   `uses:` nor a module `source` accepts a variable, so this is a literal.)
 2. Fill in `infra/preview/backend.tf` (state bucket/lock table) and
    `infra/preview/shared-platform.auto.tfvars` (cluster, VPC, Karpenter role,
    tailnet suffix, Neon parent branches).
