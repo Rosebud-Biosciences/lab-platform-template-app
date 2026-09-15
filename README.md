@@ -42,12 +42,14 @@ flowchart LR
 | Path | What |
 | --- | --- |
 | `packages/db` | SQLAlchemy models, engine helper, Alembic migrations (the schema) |
-| `packages/app` | FastAPI webapp: `/` reads the DB, `/healthz` never does, marimo notebook at `/notebooks/`, tailnet identity at `/whoami` |
-| `packages/workflows` | Dagster assets/jobs/schedule/sensor: Ray fan-out + streaming micro-batch examples |
+| `packages/app` | FastAPI webapp: `/` reads the DB, `/healthz` never does, marimo notebook at `/notebooks/`, tailnet identity at `/whoami`, the data it is wired to at `/data` |
+| `packages/dataset` | The app's [tether](https://github.com/elyall/tether) dataset as a package: `tether.toml` + one manifest per data object (Neon x2, Icechunk, Iceberg, Lance, Delta, an S3 prefix) next to the `DATA_REFS` contract (`refs.py`) and the native openers (`openers.py`, extra `[stores]`) |
+| `packages/workflows` | Dagster assets/jobs/schedule/sensor: Ray fan-out + streaming micro-batch examples, plus one asset per data store (`stores.py`) through `dataset` |
 | `deployables.json` | The deployables (single source of truth for CI's build matrix and `infra/preview`) |
-| `infra/preview` | This app's per-PR preview stack (platform modules, remote source) |
+| `infra/preview` | This app's per-PR preview stack (platform modules, remote source); `fork_provider` picks who forks the data |
 | `Dockerfile` | One shared recipe, per-package images via `TARGET_PACKAGE`; GPU via `BASE_IMAGE` + `--extra gpu` |
-| `.github/workflows` | ci / preview-up / preview-down / sweep / deploy |
+| `.github/workflows` | ci / preview-up / preview-down / sweep / deploy, plus data-pull (nightly pins of prod data) and tether-matrix (tether's live backend test, off by default) |
+| `.github/scripts` | The tether half of the preview loop: `tether-fork.sh`, `tether-down.sh`, `tether-open-all.sh`, `tether-matrix.sh` |
 
 The workspace mirrors a production monorepo at hello-world scale: packages
 stay dependency-light and import each other through the workspace
@@ -58,7 +60,7 @@ and one lockfile pins everything including the image build.
 
 ```shell
 uv sync                  # everything, including dev tooling
-uv run pytest            # 9 tests, no database or containers needed (sqlite + local Ray)
+uv run pytest            # 27 tests, no database, services or containers needed (sqlite + local Ray + local stores)
 uv run ruff check .
 uv run ty check
 
@@ -72,6 +74,12 @@ uv run dagster dev -f packages/workflows/repo.py   # Dagster UI on :3000
 
 Everything container-side is plain compose spec / OCI, so `docker compose`
 works identically if that's what you have.
+
+With no `DATA_REFS` set, the store assets (`data_stores_job` in the Dagster
+UI) write to local stores under `.data/` (`DATA_ROOT` to move it) with a sqlite
+Iceberg catalog: every backend in the matrix runs on a laptop, and
+`cd packages/dataset && uv run tether status` works against the same
+directory. See "Ephemeral data".
 
 The app itself demonstrates **notebooks as app pages**: `/notebooks/` is a
 [marimo](https://marimo.io) notebook served by the webapp in run mode —
@@ -165,6 +173,105 @@ change — not on every lockfile edit. The platform's `examples/complete`
 already runs GPU nodes (NVIDIA GPU Operator + a tainted g5/g6 Karpenter
 NodePool); pods just add the `nvidia.com/gpu` toleration and resource limit.
 
+## Ephemeral data
+
+A preview needs data, and there are two ways to give it some. Both end in the
+same contract, so nothing in `packages/` knows which is in use:
+
+- `DATABASE_URL` — the preview's Postgres.
+- `DATA_REFS` — JSON `key -> address`, one entry per object in the dataset's
+  manifests, in the forms `tether open --json` prints
+  (`s3://…/x.icechunk#<branch>`, `lake.table#<branch>`, `s3://…/x.lance#<branch>`,
+  `s3://…/x.delta[@vN]`, `s3://…/prefix/`). `dataset.refs` parses it; a pinned
+  version or snapshot makes the opener read-only. The webapp's `/data` echoes
+  what it received.
+
+### Where the dataset lives
+
+The dataset is a package, `packages/dataset`: the tether root (`tether.toml`,
+`.tether/objects/`) and the Python that names those objects (`dataset.refs`)
+in one directory, so `workflows` and `app` depend on it like they depend on
+`db`, the images carry it, and `packages/dataset/tests/test_manifests.py` fails
+the moment the manifests, the key constants and `infra/preview/data.tf` stop
+agreeing. Adding a store is `tether add`, one constant, one asset, one line of
+HCL. This is the shape for a dataset one app owns — the greetings-derived
+stores here.
+
+A dataset several codebases share is tether's native case (its guides register
+the *code* repository as an object of the dataset, not the reverse) and it
+lives in a repository of its own. Bring it into this repo as a git submodule
+and point the tether machinery at it:
+
+```shell
+git submodule add git@github.com:your-org/lab-dataset.git datasets/lab
+# repository variable DATASET_ROOT=datasets/lab
+```
+
+Every `tether-*.sh` script and the `data-pull`, `preview-*`, `sweep` and
+`tether-matrix` jobs read `DATASET_ROOT` (default `packages/dataset`), run
+tether inside it, and run git against the repository that *contains* it — the
+dataset repo, for a submodule. Three consequences follow from that:
+
+- the `pr<N>` bookmark branches are pushed to, and retired from, the dataset
+  repo, so the checkout needs a token or deploy key with write access to it
+  (the default `GITHUB_TOKEN` only reaches this repo); the workflows already
+  check out with `submodules: true`;
+- `data-pull.yml` commits to the dataset repo's default branch, and this repo's
+  submodule pointer trails it until bumped — the commented `gitsubmodule`
+  ecosystem in `.github/dependabot.yml` opens those bumps as PRs;
+- the code that names the objects (`dataset.refs`) still lives here, so the
+  dataset repo's manifests and this package's keys are checked by the same
+  test — set `DATASET_ROOT` for `pytest` too, or keep a `packages/dataset`
+  whose `tether.toml` is a thin registration of the shared repo's objects.
+
+`TETHER_REV` pins reproductions across the boundary the same way in both
+layouts: `TETHER_REV=<dataset commit> uv run python make_report.py` opens
+every object at that commit's pins.
+
+`infra/preview`'s `fork_provider` (set from the `FORK_PROVIDER` repository
+variable) selects the provider:
+
+| | `tofu` (default) | `tether` |
+| --- | --- | --- |
+| Who forks | the preview stack, with the platform's `neon-branches`, `preview-storage`, `iceberg-branches` | CI's `fork-data` job, with `tether new -b pr<N> --eager` |
+| Postgres | copy-on-write Neon branch, tuned compute | tether fork of the Neon project (one branch serves `app` and `dagster`), `--pin record` |
+| Icechunk / Lance / Delta / files | fresh, **empty** copies in the preview's ephemeral bucket | branches inside the **production** stores, forked from the last pinned state |
+| Iceberg | empty namespace of the preview's own | a branch on the prod table |
+| Across pushes to the PR | data persists | re-forked from the baseline each push |
+| Which prod state was tested | not recorded | the pinned dataset commit on `main` (nightly `data-pull`) |
+| Landing preview data on prod | not possible | `tether promote` on merge for Icechunk and Iceberg (fast-forward); prod recomputes the rest |
+| Preview's access to prod data | none | read/write (no delete) on the store prefixes, read/commit on the tables (`modules/data-access`) |
+| Dependencies | none | `tether-vcs` (alpha; its Neon and Iceberg backends are `experimental`) |
+
+Two facts about tether mode belong next to the decision. A fork of an Iceberg
+table on S3 Tables is a branch on the *production* table, so preview pods need
+commit rights IAM cannot scope to a branch — the code is trusted, tether's
+operation log and `verify` audit it. And user refs on an S3 Tables table
+suspend its automatic maintenance while they exist, so forks are short-lived
+and swept.
+
+The tether loop, end to end (tether mode):
+
+```mermaid
+flowchart LR
+  Label[PR labeled preview] --> Fork[fork-data: tether new -b prN --eager]
+  Fork --> Up[preview-up: apply with database_url + data_refs]
+  Up --> Pods[pods: DATABASE_URL + DATA_REFS on the fork]
+  Pods --> Migrate[migrate: alembic on the fork]
+  Close[PR closed / unlabeled] --> Destroy[preview-down: destroy]
+  Destroy --> DataDown[data-down: merged? promote zarr+lake, then release; else release + delete PR-created stores]
+  Nightly[data-pull nightly] --> Main[main: tether pull + verify]
+```
+
+`data-pull.yml` runs in both modes: it is the record of which prod state each
+dataset commit describes, and the baseline tether-mode previews fork from.
+`tether-matrix.yml` (weekly, **off** until `ENABLE_TETHER_MATRIX=true`) forks
+every store, writes through the assets above, pins, diffs, dry-runs a promote
+and releases — tether's live test against the real services, reported per
+backend in one self-refreshing issue. Backends that need a service of their
+own (DuckLake, lakeFS, Dolt) are not registered; `tether add` them when you run
+one.
+
 ## Adopt this template
 
 Prerequisites (once, from the platform repo): a shared cluster + Tailscale
@@ -188,13 +295,33 @@ state bucket (`modules/bootstrap`), an ECR repository, and Neon projects for
    migration, label it `preview` — watch it build, branch, migrate, and serve
    at `https://pr<N>-webapp.<tailnet>.ts.net`. Remove the label to tear the
    preview down without closing the PR.
+7. Point the data objects at real stores: edit the locators in
+   `packages/dataset/.tether/objects/*.toml` (or `tether remove` / `tether add`
+   them from that directory), the Iceberg catalog in
+   `packages/dataset/tether.toml`, and `data_bucket_arn` /
+   `iceberg_table_bucket_arn` in `shared-platform.auto.tfvars`. Then
+   `cd packages/dataset && uv run tether commit -m "Baseline"` on `main` pins
+   prod's current state, and `data-pull.yml` keeps it fresh. Consuming a
+   dataset from its own repository instead: "Where the dataset lives".
+8. Optional, tether mode: set the Neon project's `default_endpoint_settings`
+   (0.25–2 CU, 300 s suspend) — tether creates fork endpoints with the
+   project defaults, so this is where the cost stays where the tofu path had
+   it. Grant the data-access policy to a role and set `DATA_ROLE_ARN` (or
+   attach it to `PREVIEW_ROLE_ARN`), set `DATA_ROOT_URI`
+   (`s3://<bucket>/tether/`) so an abandoned PR's own stores can be deleted,
+   then `FORK_PROVIDER=tether`. Same-repo PRs only: `fork-data` pushes the
+   `pr<N>` bookmark branch. Once real stores exist, `ENABLE_TETHER_MATRIX=true`
+   turns on the weekly live test.
 
 ## Costs
 
 A preview is one small spot node (scales to zero when idle), Neon branches
 (copy-on-write, ~free until written), an empty S3 bucket, and two tailnet
 ingresses. The expensive things — cluster, NAT, operators — are shared and
-already running.
+already running. tether mode swaps the bucket for branches inside the prod
+stores (only new chunks cost anything) and the Neon branch for tether's fork;
+the weekly matrix, when enabled, wakes the Neon compute once and writes a few
+kilobytes per store.
 
 ## License
 
