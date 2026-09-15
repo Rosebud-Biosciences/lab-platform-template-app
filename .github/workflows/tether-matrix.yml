@@ -69,7 +69,7 @@ jobs:
           echo "attention=$([ "$code" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       - name: Track in an issue
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           ATTENTION: ${{ steps.matrix.outputs.attention }}
           REPORT: ${{ runner.temp }}/matrix-report.md
