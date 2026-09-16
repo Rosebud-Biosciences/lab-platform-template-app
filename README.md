@@ -288,7 +288,9 @@ state bucket (`modules/bootstrap`), an ECR repository, and Neon projects for
    `infra/preview/shared-platform.auto.tfvars` (cluster, VPC, Karpenter role,
    tailnet suffix, Neon parent branches).
 3. Repository **variables**: `CI_ROLE_ARN`, `PREVIEW_ROLE_ARN`, `CLUSTER_NAME`,
-   `AWS_REGION`, `ECR_REPOSITORY`.
+   `AWS_REGION`, `ECR_REPOSITORY`. `CLUSTER_NAME` is also the switch: until it
+   is set, every deployment workflow (deploy, preview-up/down, sweep,
+   data-pull) skips itself, so a fresh copy of the template runs only `ci`.
 4. Repository **secrets**: `NEON_API_KEY`, `TS_OAUTH_CLIENT_ID`,
    `TS_OAUTH_SECRET`, `PROD_DATABASE_URL`; and, while the platform repo is
    private, `MODULES_GIT_TOKEN` (a fine-grained PAT or App token with

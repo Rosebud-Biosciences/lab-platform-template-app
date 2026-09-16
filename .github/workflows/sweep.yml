@@ -5,6 +5,11 @@ name: Preview Sweep
 # mode the same sweep then retires any pr* tether bookmark whose PR is closed,
 # with the same land-or-release rules as preview-down.yml's data-down.
 
+# Inert until adopted: every job here is gated on the CLUSTER_NAME repository
+# variable, which an adopter sets anyway (README "Adopt this template"). In the
+# template repo itself there is no cluster to deploy to, so the run is skipped
+# rather than failed -- a red X for "not configured" trains people to ignore
+# red X's.
 on:
   schedule:
     - cron: "17 9 * * *"
@@ -21,6 +26,7 @@ permissions:
 
 jobs:
   sweep:
+    if: ${{ vars.CLUSTER_NAME != '' }}
     uses: Rosebud-Biosciences/terraform-aws-lab-platform/.github/workflows/nightly-sweep.yml@main
     with:
       working_directory: infra/preview
@@ -36,7 +42,7 @@ jobs:
 
   tether-sweep:
     needs: sweep
-    if: ${{ !cancelled() && vars.FORK_PROVIDER == 'tether' }}
+    if: ${{ !cancelled() && vars.CLUSTER_NAME != '' && vars.FORK_PROVIDER == 'tether' }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write

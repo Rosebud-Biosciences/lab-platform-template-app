@@ -11,6 +11,11 @@ name: Deploy
 # access entry granting CI_ROLE_ARN edit rights on the webapp and dagster
 # namespaces.
 
+# Inert until adopted: every job here is gated on the CLUSTER_NAME repository
+# variable, which an adopter sets anyway (README "Adopt this template"). In the
+# template repo itself there is no cluster to deploy to, so the run is skipped
+# rather than failed -- a red X for "not configured" trains people to ignore
+# red X's.
 on:
   push:
     branches: [main]
@@ -26,6 +31,7 @@ permissions:
 
 jobs:
   meta:
+    if: ${{ vars.CLUSTER_NAME != '' }}
     runs-on: ubuntu-latest
     outputs:
       deployables: ${{ steps.read.outputs.deployables }}

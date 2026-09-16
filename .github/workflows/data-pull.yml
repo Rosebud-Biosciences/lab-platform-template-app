@@ -19,6 +19,11 @@ name: Data pull
 # PREVIEW_ROLE_ARN) holding the data-access policy -- pins are tags written
 # into the stores.
 
+# Inert until adopted: every job here is gated on the CLUSTER_NAME repository
+# variable, which an adopter sets anyway (README "Adopt this template"). In the
+# template repo itself there is no cluster to deploy to, so the run is skipped
+# rather than failed -- a red X for "not configured" trains people to ignore
+# red X's.
 on:
   schedule:
     - cron: "43 8 * * *"
@@ -30,6 +35,7 @@ permissions:
 
 jobs:
   pull:
+    if: ${{ vars.CLUSTER_NAME != '' }}
     runs-on: ubuntu-latest
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}

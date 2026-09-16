@@ -29,7 +29,7 @@ permissions:
 jobs:
   down:
     # `unlabeled` fires once per removed label; only the `preview` label matters.
-    if: ${{ github.event.action == 'closed' || github.event.label.name == 'preview' }}
+    if: ${{ vars.CLUSTER_NAME != '' && (github.event.action == 'closed' || github.event.label.name == 'preview') }}
     uses: Rosebud-Biosciences/terraform-aws-lab-platform/.github/workflows/preview-down.yml@main
     with:
       preview_name: pr${{ github.event.pull_request.number }}
@@ -46,7 +46,7 @@ jobs:
 
   data-down:
     needs: down
-    if: ${{ !cancelled() && needs.down.result == 'success' && vars.FORK_PROVIDER == 'tether' && (github.event.action == 'closed' || github.event.label.name == 'preview') }}
+    if: ${{ !cancelled() && needs.down.result == 'success' && vars.CLUSTER_NAME != '' && vars.FORK_PROVIDER == 'tether' && (github.event.action == 'closed' || github.event.label.name == 'preview') }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write

@@ -48,10 +48,13 @@ jobs:
   # Every other job `needs` this one (directly or transitively), so this guard
   # gates the whole run: the exact `preview` label being added, or a push to a
   # PR that already wears it. Unlabeled PRs skip everything.
+  # ...and on the repo being adopted at all (CLUSTER_NAME set): the template
+  # repo itself skips every preview run instead of failing it.
   meta:
     if: >-
-      ${{ (github.event.action == 'labeled' && github.event.label.name == 'preview')
-      || (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'preview')) }}
+      ${{ vars.CLUSTER_NAME != '' &&
+      ((github.event.action == 'labeled' && github.event.label.name == 'preview')
+      || (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'preview'))) }}
     runs-on: ubuntu-latest
     outputs:
       deployables: ${{ steps.read.outputs.deployables }}
