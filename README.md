@@ -290,7 +290,9 @@ state bucket (`modules/bootstrap`), an ECR repository, and Neon projects for
 3. Repository **variables**: `CI_ROLE_ARN`, `PREVIEW_ROLE_ARN`, `CLUSTER_NAME`,
    `AWS_REGION`, `ECR_REPOSITORY`.
 4. Repository **secrets**: `NEON_API_KEY`, `TS_OAUTH_CLIENT_ID`,
-   `TS_OAUTH_SECRET`, `PROD_DATABASE_URL`.
+   `TS_OAUTH_SECRET`, `PROD_DATABASE_URL`; and, while the platform repo is
+   private, `MODULES_GIT_TOKEN` (a fine-grained PAT or App token with
+   read-only Contents on it) so `tofu init` can fetch the module sources.
 5. For `deploy.yml`: an EKS access entry granting `CI_ROLE_ARN` edit rights on
    the `webapp` and `dagster` namespaces, and a prod stack that enables the
    webapp with `webapp_ignore_image_changes = true`.

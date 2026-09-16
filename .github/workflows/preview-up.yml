@@ -28,7 +28,8 @@ name: Preview Up
 #            tether mode: FORK_PROVIDER=tether, optionally DATA_ROLE_ARN (a role
 #            holding the data-access policy; defaults to PREVIEW_ROLE_ARN) and
 #            DATASET_ROOT (where tether.toml lives; default packages/dataset)
-#   secrets: NEON_API_KEY, TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET
+#   secrets: NEON_API_KEY, TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET, and MODULES_GIT_TOKEN
+#            while the platform repo is private (read-only Contents on it)
 
 on:
   pull_request:
@@ -161,6 +162,7 @@ jobs:
       neon_api_key: ${{ secrets.NEON_API_KEY }}
       ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
+      modules_git_token: ${{ secrets.MODULES_GIT_TOKEN }} # only while the platform repo is private
       # Empty in tofu mode (the job was skipped); the reusable workflow ignores it.
       extra_tfvars_json: ${{ needs.fork-data.outputs.tfvars_b64 }}
 
@@ -172,6 +174,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PREVIEW_NAME: pr${{ github.event.pull_request.number }}
+      MODULES_GIT_TOKEN: ${{ secrets.MODULES_GIT_TOKEN }}
     steps:
       - uses: actions/checkout@v7
 
@@ -179,6 +182,13 @@ jobs:
         with:
           role-to-assume: ${{ vars.PREVIEW_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+
+      # tofu init fetches the platform's modules with git; while that repo is
+      # private the runner needs a token that can read it (same secret the
+      # reusable workflows take as modules_git_token).
+      - name: Authenticate module fetches
+        if: ${{ env.MODULES_GIT_TOKEN != '' }}
+        run: git config --global url."https://x-access-token:${MODULES_GIT_TOKEN}@github.com/".insteadOf "https://github.com/"
 
       - uses: opentofu/setup-opentofu@v2
         with:
