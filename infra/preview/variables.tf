@@ -69,6 +69,42 @@ variable "image_stamp" {
 # EPHEMERAL DATA: which provider forks it (see main.tf header, README)
 # ------------------------------------------------------------------------------
 
+variable "preview_profile" {
+  description = <<-EOT
+    What this preview stamps (platform docs/preview-environments.md, "Two
+    preview profiles"):
+      full  webapp + Dagster (the PR's workflows image) + the Ray namespace,
+            isolated on the preview's own database branch. Tests app AND
+            pipeline changes.
+      app   only the webapp, still on its own database branch; Dagster is
+            PROD's, reached through shared_service_urls. Up in ~2 minutes,
+            but runs the app triggers execute prod's code location on prod's
+            data -- for frontend/API-only changes, never for a pipeline or
+            schema change. CI sets it from the preview:app-only PR label.
+  EOT
+  type        = string
+  default     = "full"
+
+  validation {
+    condition     = contains(["full", "app"], var.preview_profile)
+    error_message = "preview_profile must be \"full\" or \"app\"."
+  }
+}
+
+variable "shared_service_urls" {
+  description = "In-cluster URLs of the shared (prod) services an app-only preview points at: the prod workloads module's in_cluster_urls output (shared-platform.auto.tfvars). Required with preview_profile = \"app\"."
+  type = object({
+    dagster_webserver_url = optional(string, "")
+    mlflow_tracking_uri   = optional(string, "")
+  })
+  default = {}
+
+  validation {
+    condition     = var.preview_profile != "app" || var.shared_service_urls.dagster_webserver_url != ""
+    error_message = "preview_profile = \"app\" needs shared_service_urls.dagster_webserver_url (prod's in_cluster_urls output, see shared-platform.auto.tfvars)."
+  }
+}
+
 variable "fork_provider" {
   description = <<-EOT
     Who provides the preview's data. "tofu": this stack stamps isolated, empty

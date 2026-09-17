@@ -24,6 +24,16 @@ What a preview contains:
   `DATABASE_URL` + `DATA_REFS` (`data.tf`).
 - **A small Karpenter NodePool** — scales to zero when idle.
 
+Or, with `preview_profile = "app"` (the `preview:app-only` PR label), just the
+first item: the webapp on its own database branch, with `DAGSTER_WEBSERVER_URL`
+(and `MLFLOW_TRACKING_URI`, if prod runs MLflow) pointing at **prod's**
+services through `shared_service_urls` in `shared-platform.auto.tfvars` — the
+prod stack's `in_cluster_urls` output. No Dagster, no Ray, no NodePool, one
+image build, ~2 minutes to green. The trade: runs the preview's app triggers
+execute prod's code location on prod's data while the webapp reads its own
+branch, so this is for frontend/API changes only. Full account of the
+trade-offs: the platform's `modules/workloads` README, "Stamp or share".
+
 CI drives this stack via the platform repo's reusable workflows
 (`.github/workflows/preview-up.yml` in this repo passes
 `working_directory: infra/preview`, gated on the PR wearing the `preview`

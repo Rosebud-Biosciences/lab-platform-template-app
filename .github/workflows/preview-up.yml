@@ -23,6 +23,13 @@ name: Preview Up
 # workflow's extra_tfvars_json; nothing else changes. Both end in the same
 # pods contract, DATABASE_URL + DATA_REFS.
 #
+# Two profiles, chosen by label: `preview` alone stamps the full set (webapp +
+# Dagster + Ray on the PR's database branch); `preview` + `preview:app-only`
+# stamps the webapp only and points it at PROD's Dagster -- fast, and right
+# only for frontend/API changes (infra/preview/variables.tf preview_profile).
+# Only the `preview` label (or a push while labeled) triggers a run, so add
+# preview:app-only first, or push after adding it.
+#
 # Requires (see README "Adopt this template"):
 #   vars:    CI_ROLE_ARN, PREVIEW_ROLE_ARN, CLUSTER_NAME, AWS_REGION, ECR_REPOSITORY
 #            tether mode: FORK_PROVIDER=tether, optionally DATA_ROLE_ARN (a role
@@ -58,13 +65,27 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       deployables: ${{ steps.read.outputs.deployables }}
+      profile: ${{ steps.read.outputs.profile }}
       registry: ${{ steps.registry.outputs.registry }}
       stamp: pr${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
     steps:
       - uses: actions/checkout@v7
 
+      # preview:app-only -> preview_profile "app": the webapp alone, on its own
+      # database branch, pointed at PROD's Dagster (infra/preview/variables.tf
+      # spells out what that means). Only the app image is built; the
+      # workflows image would go unused.
       - id: read
-        run: echo "deployables=$(jq -c . deployables.json)" >> "$GITHUB_OUTPUT"
+        env:
+          APP_ONLY: ${{ contains(github.event.pull_request.labels.*.name, 'preview:app-only') }}
+        run: |
+          if [ "$APP_ONLY" = "true" ]; then
+            echo "profile=app" >> "$GITHUB_OUTPUT"
+            echo "deployables=$(jq -c '[.[] | select(. == "app")]' deployables.json)" >> "$GITHUB_OUTPUT"
+          else
+            echo "profile=full" >> "$GITHUB_OUTPUT"
+            echo "deployables=$(jq -c . deployables.json)" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -160,7 +181,7 @@ jobs:
       cluster_name: ${{ vars.CLUSTER_NAME }}
       aws_region: ${{ vars.AWS_REGION }}
       tailscale: true
-      extra_apply_args: -var "image_base=${{ needs.meta.outputs.registry }}/${{ vars.ECR_REPOSITORY }}" -var "image_stamp=${{ needs.meta.outputs.stamp }}" -var "fork_provider=${{ vars.FORK_PROVIDER || 'tofu' }}"
+      extra_apply_args: -var "image_base=${{ needs.meta.outputs.registry }}/${{ vars.ECR_REPOSITORY }}" -var "image_stamp=${{ needs.meta.outputs.stamp }}" -var "fork_provider=${{ vars.FORK_PROVIDER || 'tofu' }}" -var "preview_profile=${{ needs.meta.outputs.profile }}"
     secrets:
       neon_api_key: ${{ secrets.NEON_API_KEY }}
       ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}

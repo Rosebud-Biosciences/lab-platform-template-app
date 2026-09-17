@@ -29,6 +29,13 @@ flowchart LR
   against copy-on-write Neon branches of prod data. The PR's own migrations
   run on the PR's own branch — schema experiments never touch prod. The label
   is the gate, so most PRs deploy nothing.
+  Add `preview:app-only` as well (before `preview`, or push a commit after)
+  for a **frontend/API-only PR**: only the app image is built and stamped,
+  still on its own database branch, and its `DAGSTER_WEBSERVER_URL` points at
+  **prod's** Dagster. Up in about two minutes instead of ten — but runs the
+  preview's app triggers then execute prod's code location on prod's data, so
+  a pipeline or schema change in such a PR goes untested. The full/app choice
+  and its consequences: platform docs, "Two preview profiles".
 - **Teardown** (`preview-down.yml` + nightly `sweep.yml`): removing the label
   or closing the PR destroys everything — a preview can be parked while its
   PR stays open — and the sweep catches anything that slips through.

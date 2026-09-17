@@ -10,6 +10,15 @@ vpc_name                     = "vpc-prod"
 karpenter_node_iam_role_name = "eks-prod-karpenter-node"
 private_ingress_dns_suffix   = "tailXXXX.ts.net"
 
+# In-cluster URLs of prod's services, for app-only previews (the
+# preview:app-only label -> preview_profile = "app"): the prod workloads
+# module's in_cluster_urls output. Only dagster_webserver_url is required;
+# leave mlflow_tracking_uri empty if prod runs no MLflow.
+shared_service_urls = {
+  dagster_webserver_url = "http://dagster-dagster-webserver.dagster.svc.cluster.local:80"
+  mlflow_tracking_uri   = ""
+}
+
 # Where the data objects in packages/dataset/.tether/objects/ live (README
 # "Ephemeral data").
 # tofu mode needs only iceberg_table_bucket_arn (for the ephemeral namespace);

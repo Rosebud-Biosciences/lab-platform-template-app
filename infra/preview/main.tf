@@ -37,6 +37,9 @@ locals {
   neon_enabled    = local.tofu_forks && length(var.neon_branch_sources) > 0
   iceberg_enabled = local.tofu_forks && var.iceberg_table_bucket_arn != ""
 
+  # "app": the webapp alone; Dagster is prod's (variables.tf preview_profile).
+  pipelines = var.preview_profile == "full"
+
   # One image reference per deployable, derived from the same single source of
   # truth CI's build matrix uses. Adding app2 to deployables.json makes
   # local.image["app2"] available here with no new variables.
@@ -147,8 +150,8 @@ module "data" {
   region            = var.region
 
   enable_webapp  = true
-  enable_dagster = true
-  enable_ray     = true
+  enable_dagster = local.pipelines
+  enable_ray     = local.pipelines
 
   webapp_policy_arns  = local.webapp_policies
   dagster_policy_arns = local.data_policies
@@ -170,15 +173,16 @@ module "compute" {
   vpc_name                     = var.vpc_name
   karpenter_node_iam_role_name = var.karpenter_node_iam_role_name
 
-  karpenter_node_pools = {
+  # No pipelines, no pool: an app-only preview rides the shared node group.
+  karpenter_node_pools = local.pipelines ? {
     default = {
       instance_families = ["m7i"]
       instance_sizes    = ["large", "xlarge"]
       capacity_types    = ["spot", "on-demand"]
       limits            = { cpu = "8", memory = "32Gi" }
     }
-  }
-  node_pool_roles = { default = ["dagster", "ray_head", "ray_worker"] }
+  } : {}
+  node_pool_roles = local.pipelines ? { default = ["dagster", "ray_head", "ray_worker"] } : {}
 
   tags = local.preview_tags
 }
@@ -224,11 +228,18 @@ module "workloads" {
   # stays off so previews don't pay for a standing Ray cluster. The user-code
   # deployment and every run it launches get DATABASE_URL (from database_url)
   # plus the same DATA_REFS / ICEBERG_CATALOG the webapp does.
-  enable_dagster          = true
-  enable_ray              = true
+  enable_dagster          = local.pipelines
+  enable_ray              = local.pipelines
   enable_ray_cluster      = false
   dagster_user_code_image = local.image["workflows"]
   dagster_user_code_env   = local.data_env
+
+  # preview_profile "app": no Dagster of its own; the webapp's
+  # DAGSTER_WEBSERVER_URL (and MLFLOW_TRACKING_URI, if prod runs MLflow) point
+  # at prod's. Same variable names as when stamped, so packages/app never
+  # knows which -- but runs it triggers now execute prod's code on prod's data.
+  dagster_webserver_url = local.pipelines ? "" : var.shared_service_urls.dagster_webserver_url
+  mlflow_tracking_uri   = local.pipelines ? "" : var.shared_service_urls.mlflow_tracking_uri
 
   # The preview's database, whichever provider forked it.
   database_url = local.database_url
