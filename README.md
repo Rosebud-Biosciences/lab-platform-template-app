@@ -240,7 +240,7 @@ variable) selects the provider:
 | Across pushes to the PR | data persists | re-forked from the baseline each push |
 | Which prod state was tested | not recorded | the pinned dataset commit on `main` (nightly `data-pull`) |
 | Landing preview data on prod | not possible | `tether promote` on merge for Icechunk and Iceberg (fast-forward); prod recomputes the rest |
-| Preview's access to prod data | none | read/write (no delete) on the store prefixes, read/commit on the tables (`modules/data-access`) |
+| Preview's access to prod data | none | read/write (no delete) on the store prefixes, read/commit on the tables (`aws/data-access`) |
 | Dependencies | none | `tether-vcs` (alpha; its Neon and Iceberg backends are `experimental`) |
 
 Two facts about tether mode belong next to the decision. A fork of an Iceberg
@@ -276,7 +276,7 @@ one.
 
 Prerequisites (once, from the platform repo): a shared cluster + Tailscale
 operator (`examples/complete`), the bootstrap stack's CI/preview OIDC roles and
-state bucket (`modules/bootstrap`), an ECR repository, and Neon projects for
+state bucket (`aws/bootstrap`), an ECR repository, and Neon projects for
 `app` and `dagster`.
 
 1. The `Rosebud-Biosciences/terraform-aws-lab-platform` references (workflow

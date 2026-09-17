@@ -50,7 +50,7 @@ locals {
 
 module "storage" {
   count  = local.tofu_forks ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/preview-storage?ref=main"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/preview-storage?ref=main"
 
   name_prefix = var.preview_name
   tags        = local.preview_tags
@@ -71,7 +71,7 @@ module "neon" {
 # before destroy (see the module README).
 module "iceberg" {
   count  = local.iceberg_enabled ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/iceberg-branches?ref=main"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/iceberg-branches?ref=main"
 
   name_prefix      = var.preview_name
   table_bucket_arn = var.iceberg_table_bucket_arn
@@ -88,7 +88,7 @@ module "iceberg" {
 
 module "data_access" {
   count  = local.tether_forks ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/data-access?ref=main"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/data-access?ref=main"
 
   name       = "${var.preview_name}-data-access"
   bucket_arn = var.data_bucket_arn
@@ -130,35 +130,82 @@ locals {
   } : { data = one(module.data_access[*].policy_arn) }
 }
 
+# ------------------------------------------------------------------------------
+# Backend adapters: the AWS backend's two axes, stamped with the preview's
+# prefix. modules/workloads itself is cloud-agnostic; these hand it its
+# contract inputs (identity, scheduling).
+# ------------------------------------------------------------------------------
+
+# Data axis: per-service IAM roles (IRSA on the shared EKS cluster) carrying
+# whichever object-store access the fork provider calls for.
+module "data" {
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/data-adapter?ref=main"
+
+  cluster_name      = var.cluster_name
+  name_prefix       = local.name_prefix
+  oidc_provider_arn = var.oidc_provider_arn
+  region            = var.region
+
+  enable_webapp  = true
+  enable_dagster = true
+  enable_ray     = true
+
+  webapp_policy_arns  = local.webapp_policies
+  dagster_policy_arns = local.data_policies
+  ray_policy_arns     = local.data_policies
+
+  tags = local.preview_tags
+}
+
+# Compute axis: one small preview-scoped NodePool (scales to zero when idle)
+# that Dagster's pods and any Ray pods are pinned to.
+module "compute" {
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/compute-adapter?ref=main"
+
+  providers = { aws = aws, helm = helm }
+
+  cluster_name                 = var.cluster_name
+  name_prefix                  = local.name_prefix
+  environment                  = "preview"
+  vpc_name                     = var.vpc_name
+  karpenter_node_iam_role_name = var.karpenter_node_iam_role_name
+
+  karpenter_node_pools = {
+    default = {
+      instance_families = ["m7i"]
+      instance_sizes    = ["large", "xlarge"]
+      capacity_types    = ["spot", "on-demand"]
+      limits            = { cpu = "8", memory = "32Gi" }
+    }
+  }
+  node_pool_roles = { default = ["dagster", "ray_head", "ray_worker"] }
+
+  tags = local.preview_tags
+}
+
 module "workloads" {
   source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/workloads?ref=main"
 
   providers = {
-    aws        = aws
     kubernetes = kubernetes
     helm       = helm
     kubectl    = kubectl
   }
 
   environment = "preview"
-  region      = var.region
-
-  # Target the existing shared cluster.
-  cluster_name                 = var.cluster_name
-  oidc_provider_arn            = var.oidc_provider_arn
-  vpc_name                     = var.vpc_name
-  karpenter_node_iam_role_name = var.karpenter_node_iam_role_name
 
   # Everything is prefixed so it never collides with prod or other previews.
   name_prefix = local.name_prefix
+
+  # Contract inputs from the adapters.
+  workload_identity = module.data.workload_identity
+  scheduling        = module.compute.scheduling
 
   # Private Ingresses on the shared Tailscale operator, hostnames prefixed.
   enable_private_ingress          = var.private_ingress_dns_suffix != ""
   private_ingress_class_name      = "tailscale"
   private_ingress_hostname_prefix = local.name_prefix
   private_ingress_dns_suffix      = var.private_ingress_dns_suffix
-
-  tags = local.preview_tags
 
   # --- The app under test -----------------------------------------------------
   # webapp: packages/app served by the PR's image (uvicorn on :8080).
@@ -190,19 +237,4 @@ module "workloads" {
   dagster_db_name     = local.dagster_db.dbname
   dagster_db_user     = local.dagster_db.user
   dagster_db_password = local.dagster_db.password
-
-  # Object-store access follows the provider (see local.data_policies).
-  webapp_bucket_policies      = local.webapp_policies
-  ray_storage_bucket_policies = local.data_policies
-  dagster_bucket_policies     = local.data_policies
-
-  # One small preview-scoped NodePool (scales to zero when idle).
-  karpenter_node_pools = {
-    default = {
-      instance_families = ["m7i"]
-      instance_sizes    = ["large", "xlarge"]
-      capacity_types    = ["spot", "on-demand"]
-      limits            = { cpu = "8", memory = "32Gi" }
-    }
-  }
 }
