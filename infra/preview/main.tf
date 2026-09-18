@@ -53,7 +53,7 @@ locals {
 
 module "storage" {
   count  = local.tofu_forks ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/preview-storage?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/preview-storage?ref=main"
 
   name_prefix = var.preview_name
   tags        = local.preview_tags
@@ -61,7 +61,7 @@ module "storage" {
 
 module "neon" {
   count  = local.neon_enabled ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/neon-branches?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/neon-branches?ref=main"
 
   providers = { neon = neon }
 
@@ -74,7 +74,7 @@ module "neon" {
 # before destroy (see the module README).
 module "iceberg" {
   count  = local.iceberg_enabled ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/iceberg-branches?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/iceberg-branches?ref=main"
 
   name_prefix      = var.preview_name
   table_bucket_arn = var.iceberg_table_bucket_arn
@@ -91,7 +91,7 @@ module "iceberg" {
 
 module "data_access" {
   count  = local.tether_forks ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/data-access?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-access?ref=main"
 
   name       = "${var.preview_name}-data-access"
   bucket_arn = var.data_bucket_arn
@@ -142,7 +142,7 @@ locals {
 # Data axis: per-service IAM roles (IRSA on the shared EKS cluster) carrying
 # whichever object-store access the fork provider calls for.
 module "data" {
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/data-adapter?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-adapter?ref=main"
 
   cluster_name      = var.cluster_name
   name_prefix       = local.name_prefix
@@ -163,7 +163,7 @@ module "data" {
 # Compute axis: one small preview-scoped NodePool (scales to zero when idle)
 # that Dagster's pods and any Ray pods are pinned to.
 module "compute" {
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/compute-adapter?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/compute-adapter?ref=main"
 
   providers = { aws = aws, helm = helm }
 
@@ -188,7 +188,7 @@ module "compute" {
 }
 
 module "workloads" {
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/workloads?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/workloads?ref=main"
 
   providers = {
     kubernetes = kubernetes

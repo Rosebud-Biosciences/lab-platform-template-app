@@ -1,6 +1,6 @@
 # Preview stack (one Terraform workspace per PR)
 
-This is this app's copy of the platform's [preview pattern](https://github.com/Rosebud-Biosciences/terraform-aws-lab-platform/blob/main/docs/preview-environments.md):
+This is this app's copy of the platform's [preview pattern](https://github.com/Rosebud-Biosciences/lab-platform/blob/main/docs/preview-environments.md):
 everything is stamped with `pr<N>-`, lands on the **shared** cluster, and is
 destroyed when the PR closes. The app repo owns this stack so the preview shape
 (which workloads, which image) evolves with the app, while the mechanics come

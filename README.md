@@ -1,7 +1,7 @@
 # lab-platform template app
 
 A hello-world consumer of
-[terraform-aws-lab-platform](https://github.com/Rosebud-Biosciences/terraform-aws-lab-platform):
+[lab-platform](https://github.com/Rosebud-Biosciences/lab-platform):
 a `uv` workspace with a database, a webapp, and a Dagster pipeline, plus CI
 that gives every pull request its **own preview environment** — branched
 database included — and deploys `main` to prod. Every piece is deliberately
@@ -286,7 +286,7 @@ operator (`examples/complete`), the bootstrap stack's CI/preview OIDC roles and
 state bucket (`aws/bootstrap`), an ECR repository, and Neon projects for
 `app` and `dagster`.
 
-1. The `Rosebud-Biosciences/terraform-aws-lab-platform` references (workflow
+1. The `Rosebud-Biosciences/lab-platform` references (workflow
    `uses:` lines, `infra/preview` module sources, links) point at the upstream
    platform repo. Forking the platform too? Find-and-replace them with your
    fork. Either way, pin `?ref=main` to a platform release tag. (Neither

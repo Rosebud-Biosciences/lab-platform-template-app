@@ -173,7 +173,7 @@ jobs:
   up:
     needs: [meta, build, fork-data]
     if: ${{ !cancelled() && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.fork-data.result) }}
-    uses: Rosebud-Biosciences/terraform-aws-lab-platform/.github/workflows/preview-up.yml@main
+    uses: Rosebud-Biosciences/lab-platform/.github/workflows/preview-up.yml@main
     with:
       preview_name: pr${{ github.event.pull_request.number }}
       working_directory: infra/preview
