@@ -4,8 +4,13 @@
 # bookmark the dataset checkout is on:
 #
 #   database_url         db/app on the fork, with password
-#   dagster_db_host/name/user/password
-#                        db/dagster on the fork, split for the workloads module
+#   service_dbs          db/<svc> on the fork for every other neon object,
+#                        split into {host, dbname, user, password} keyed by
+#                        <svc> -- Dagster's run storage, MLflow's tracking
+#                        store, Argo's workflow archive; the stack hands each
+#                        to the matching <svc>_db_* inputs of the workloads
+#                        module. Registering another db/<svc> manifest adds a
+#                        key here with no script change.
 #   data_refs            DATA_REFS: every non-database object -> address on the
 #                        fork, exactly as `tether open --json` prints it
 #
@@ -25,22 +30,21 @@ objects="$DATASET_ROOT/.tether/objects"
 keys=$(find "$objects" -name '*.toml' | sed "s#^$objects/##; s#\.toml\$##" | sort)
 
 refs='{}'
-database_url=""
-dagster_url=""
+dbs='{}'
 while IFS= read -r key; do
   [ -n "$key" ] || continue
   kind=$(sed -n 's/^kind *= *"\([^"]*\)".*/\1/p' "$objects/$key.toml")
   case "$kind" in
     neon)
+      case "$key" in
+        db/*) ;;
+        *) echo "tether-open-all: neon object $key must be keyed db/<name> (db/app or a service's database)" >&2; exit 1 ;;
+      esac
       # Writable so the read_write endpoint exists before pods connect.
       url=$(tether open "$key" --writable --with-password)
       password=$(python3 -c 'import sys, urllib.parse as u; print(u.urlsplit(sys.argv[1]).password or "")' "$url")
       [ -z "$password" ] || echo "::add-mask::$password"
-      case "$key" in
-        db/app) database_url="$url" ;;
-        db/dagster) dagster_url="$url" ;;
-        *) echo "tether-open-all: unexpected neon object $key (expected db/app, db/dagster)" >&2; exit 1 ;;
-      esac
+      dbs=$(jq -c --arg k "${key#db/}" --arg v "$url" '. + {($k): $v}' <<<"$dbs")
       ;;
     *)
       address=$(tether open "$key" --json | jq -r '.address')
@@ -49,16 +53,27 @@ while IFS= read -r key; do
   esac
 done <<<"$keys"
 
-python3 - "$database_url" "$dagster_url" "$refs" <<'EOF'
+python3 - "$dbs" "$refs" <<'EOF'
 import json, sys, urllib.parse as u
-database_url, dagster_url, refs = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
-d = u.urlsplit(dagster_url) if dagster_url else None
+
+dbs, refs = json.loads(sys.argv[1]), json.loads(sys.argv[2])
+if "app" not in dbs:
+    sys.exit("tether-open-all: no db/app object in the dataset (the webapp's DATABASE_URL)")
+
+
+def split(url: str) -> dict:
+    d = u.urlsplit(url)
+    return {
+        "host": d.hostname or "",
+        "dbname": (d.path or "/").lstrip("/"),
+        "user": u.unquote(d.username or ""),
+        "password": u.unquote(d.password or ""),
+    }
+
+
 print(json.dumps({
-    "database_url": database_url,
-    "dagster_db_host": d.hostname or "" if d else "",
-    "dagster_db_name": (d.path or "/").lstrip("/") if d else "",
-    "dagster_db_user": u.unquote(d.username or "") if d else "",
-    "dagster_db_password": u.unquote(d.password or "") if d else "",
+    "database_url": dbs["app"],
+    "service_dbs": {svc: split(url) for svc, url in sorted(dbs.items()) if svc != "app"},
     "data_refs": json.dumps(refs, sort_keys=True),
 }))
 EOF

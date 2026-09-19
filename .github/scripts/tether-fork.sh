@@ -33,5 +33,5 @@ dgit push --force --quiet origin "HEAD:refs/heads/$bookmark"
 
 out="${RUNNER_TEMP:-/tmp}/tether-tfvars.json"
 .github/scripts/tether-open-all.sh > "$out"
-echo "forked $(jq -r '.data_refs | fromjson | keys | join(", ")' "$out") plus db/app, db/dagster onto $bookmark"
+echo "forked $(jq -r '.data_refs | fromjson | keys | join(", ")' "$out") plus db/app and $(jq -r '.service_dbs | keys | map("db/" + .) | join(", ")' "$out") onto $bookmark"
 echo "tfvars_b64=$(base64 < "$out" | tr -d '\n')" >> "${GITHUB_OUTPUT:-/dev/stdout}"

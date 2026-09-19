@@ -34,8 +34,15 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-# The Postgres objects travel as DATABASE_URL, not in DATA_REFS.
-NEON_KEYS = ("db/app", "db/dagster")
+# The Postgres objects travel as connection settings, not in DATA_REFS: db/app
+# as the webapp's DATABASE_URL, the service databases (Dagster's run storage,
+# MLflow's tracking store, Argo's workflow archive) as the preview stack's
+# service_dbs. They are tether objects all the same, so a preview forks the
+# services' STATE along with the data -- prod's run history, experiments and
+# archived workflows appear on the preview's branch, and nothing written there
+# reaches prod.
+NEON_KEYS = ("db/app", "db/dagster", "db/mlflow", "db/argo")
+SERVICE_DB_KEYS = tuple(k for k in NEON_KEYS if k != "db/app")
 
 ICECHUNK_KEY = "zarr/greetings"
 ICEBERG_KEY = "lake/greetings_daily"

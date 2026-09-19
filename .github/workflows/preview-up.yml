@@ -242,3 +242,11 @@ jobs:
         run: |
           uv sync --frozen
           uv run alembic -c packages/db/alembic.ini upgrade head
+
+      # The branch started from prod's rows, prod's login sessions included.
+      # They are hashed with prod's SESSION_SECRET (useless here), but the
+      # preview has no business holding them. Never run this against prod.
+      - name: Purge the sessions the branch inherited
+        env:
+          DATABASE_URL: ${{ steps.dburl.outputs.url }}
+        run: uv run python -m db.maintenance purge-sessions

@@ -1,0 +1,12 @@
+key = "db/mlflow"
+kind = "neon"
+recoverable = true
+
+[locator]
+project_id = "your-neon-project"
+database = "mlflow"
+role = "mlflow"
+
+[policy]
+file = "immutable"
+pin = "record"

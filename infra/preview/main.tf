@@ -12,10 +12,14 @@
 #           Neon branch, an ephemeral bucket, an ephemeral Iceberg namespace.
 #   tether  CI's fork-data job forks the PRODUCTION stores with tether and hands
 #           this stack the results (external.auto.tfvars.json: database_url,
-#           dagster_db_*, data_refs); this stack grants the pods access to the
+#           service_dbs, data_refs); this stack grants the pods access to the
 #           prod stores (data-access) and creates no data resources itself.
-# Both end in the same pod contract -- DATABASE_URL + DATA_REFS -- so the app
-# never learns which. See data.tf and README "Ephemeral data".
+# Both end in the same pod contract -- DATABASE_URL + DATA_REFS, plus each
+# service's own database -- so the app never learns which. The services'
+# STATE branches too: Dagster's run storage, MLflow's tracking store and
+# Argo's archive are db/<svc> objects (dataset) / neon_branch_sources keys, so
+# a preview shows prod's history and writes none back. See data.tf and README
+# "Ephemeral data".
 #
 # Module sources point at the upstream platform repo; a fork of the platform
 # replaces the org, and everyone pins ?ref= to a release tag. (A module source
@@ -37,7 +41,8 @@ locals {
   neon_enabled    = local.tofu_forks && length(var.neon_branch_sources) > 0
   iceberg_enabled = local.tofu_forks && var.iceberg_table_bucket_arn != ""
 
-  # "app": the webapp alone; Dagster is prod's (variables.tf preview_profile).
+  # "app": the webapp alone; Dagster/MLflow/Argo are prod's (variables.tf
+  # preview_profile).
   pipelines = var.preview_profile == "full"
 
   # One image reference per deployable, derived from the same single source of
@@ -111,13 +116,29 @@ locals {
     local.neon_enabled ? one(module.neon[*].postgres_urls["app"]) : ""
   )
 
-  neon_dagster = local.neon_enabled ? one(module.neon[*].connections["dagster"]) : null
-  dagster_db = {
-    host     = local.tether_forks ? var.dagster_db_host : try(local.neon_dagster.host, "")
-    dbname   = local.tether_forks ? var.dagster_db_name : try(local.neon_dagster.dbname, "")
-    user     = local.tether_forks ? var.dagster_db_user : try(local.neon_dagster.user, "")
-    password = local.tether_forks ? var.dagster_db_password : try(local.neon_dagster.password, "")
+  # The service databases, keyed by service, whichever provider forked them:
+  # tether's service_dbs, or the Neon module's connections minus "app".
+  service_dbs = local.tether_forks ? var.service_dbs : {
+    for k, c in(local.neon_enabled ? one(module.neon[*].connections) : {}) :
+    k => { host = c.host, dbname = c.dbname, user = c.user, password = c.password } if k != "app"
   }
+  no_db      = { host = "", dbname = "", user = "", password = "" }
+  dagster_db = lookup(local.service_dbs, "dagster", local.no_db)
+  mlflow_db  = lookup(local.service_dbs, "mlflow", local.no_db)
+  argo_db    = lookup(local.service_dbs, "argo", local.no_db)
+  # Which services have a database is not a secret, and it drives resource
+  # counts downstream (Argo's archive), where a sensitive value is refused.
+  services_with_db = try(nonsensitive(keys(local.service_dbs)), keys(local.service_dbs))
+
+  # MLflow's artifacts: write-once blobs per run, not a tether object (the
+  # object-store backend has no fork). tofu mode: under the ephemeral bucket,
+  # gone with it. tether mode: a per-preview prefix inside the prod data
+  # bucket's tether/ area, which data-access already grants and tether-down.sh
+  # deletes when the preview retires.
+  data_bucket_name       = var.data_bucket_arn != "" ? element(split(":", var.data_bucket_arn), 5) : ""
+  mlflow_artifact_bucket = local.tofu_forks ? one(module.storage[*].bucket_name) : local.data_bucket_name
+  mlflow_artifact_prefix = local.tofu_forks ? "mlflow" : "tether/mlflow/${var.preview_name}"
+  mlflow_artifact_root   = "s3://${local.mlflow_artifact_bucket}/${local.mlflow_artifact_prefix}"
 
   # IAM the data-writing service accounts get: the ephemeral copies in tofu
   # mode, the production stores (no delete) in tether mode.
@@ -149,13 +170,21 @@ module "data" {
   oidc_provider_arn = var.oidc_provider_arn
   region            = var.region
 
-  enable_webapp  = true
-  enable_dagster = local.pipelines
-  enable_ray     = local.pipelines
+  enable_webapp         = true
+  enable_dagster        = local.pipelines
+  enable_ray            = local.pipelines
+  enable_argo_workflows = local.pipelines
+  enable_mlflow         = local.pipelines
 
   webapp_policy_arns  = local.webapp_policies
   dagster_policy_arns = local.data_policies
   ray_policy_arns     = local.data_policies
+
+  # MLflow's tracking server writes artifacts to the preview's prefix.
+  mlflow_artifact_bucket      = local.mlflow_artifact_bucket
+  mlflow_artifact_bucket_arn  = local.tofu_forks ? one(module.storage[*].bucket_arn) : var.data_bucket_arn
+  mlflow_artifact_prefix      = local.mlflow_artifact_prefix
+  mlflow_artifact_kms_key_arn = local.tofu_forks ? one(module.storage[*].kms_key_arn) : var.data_bucket_kms_key_arn
 
   tags = local.preview_tags
 }
@@ -182,7 +211,7 @@ module "compute" {
       limits            = { cpu = "8", memory = "32Gi" }
     }
   } : {}
-  node_pool_roles = local.pipelines ? { default = ["dagster", "ray_head", "ray_worker"] } : {}
+  node_pool_roles = local.pipelines ? { default = ["dagster", "ray_head", "ray_worker", "mlflow", "argo"] } : {}
 
   tags = local.preview_tags
 }
@@ -204,6 +233,14 @@ module "workloads" {
   # Contract inputs from the adapters.
   workload_identity = module.data.workload_identity
   scheduling        = module.compute.scheduling
+
+  # Auth: the tailnet is the login (its Ingress proxy names the caller in
+  # Tailscale-User-Login, which the app trusts as IDENTITY_HEADER). Switch to
+  # { mode = "oidc", issuer_url = ..., dex_namespace = ... } once the platform
+  # runs modules/dex, and the app runs its own login instead -- users,
+  # sessions and memberships then live on this preview's database branch
+  # (platform docs/auth.md).
+  auth = { mode = "headers" }
 
   # Private Ingresses on the shared Tailscale operator, hostnames prefixed.
   enable_private_ingress          = var.private_ingress_dns_suffix != ""
@@ -234,12 +271,31 @@ module "workloads" {
   dagster_user_code_image = local.image["workflows"]
   dagster_user_code_env   = local.data_env
 
-  # preview_profile "app": no Dagster of its own; the webapp's
-  # DAGSTER_WEBSERVER_URL (and MLFLOW_TRACKING_URI, if prod runs MLflow) point
-  # at prod's. Same variable names as when stamped, so packages/app never
-  # knows which -- but runs it triggers now execute prod's code on prod's data.
+  # MLflow and Argo Workflows (with its archive) are stamped alongside Dagster
+  # in a full preview, each on its own branch of its own database, so the
+  # preview shows prod's experiments and archived workflows and writes to
+  # neither. Argo's archive is optional: no db/argo object, no archive.
+  enable_mlflow        = local.pipelines
+  mlflow_artifact_root = local.pipelines ? local.mlflow_artifact_root : ""
+  mlflow_db_host       = local.mlflow_db.host
+  mlflow_db_name       = local.mlflow_db.dbname
+  mlflow_db_user       = local.mlflow_db.user
+  mlflow_db_password   = local.mlflow_db.password
+
+  enable_argo_workflows        = local.pipelines
+  enable_argo_workflow_archive = local.pipelines && contains(local.services_with_db, "argo")
+  argo_db_host                 = local.argo_db.host
+  argo_db_name                 = local.argo_db.dbname
+  argo_db_user                 = local.argo_db.user
+  argo_db_password             = local.argo_db.password
+
+  # preview_profile "app": no Dagster/MLflow/Argo of its own; the webapp's
+  # DAGSTER_WEBSERVER_URL / MLFLOW_TRACKING_URI / ARGO_SERVER_URL point at
+  # prod's. Same variable names as when stamped, so packages/app never knows
+  # which -- but runs it triggers now execute prod's code on prod's data.
   dagster_webserver_url = local.pipelines ? "" : var.shared_service_urls.dagster_webserver_url
   mlflow_tracking_uri   = local.pipelines ? "" : var.shared_service_urls.mlflow_tracking_uri
+  argo_server_url       = local.pipelines ? "" : var.shared_service_urls.argo_server_url
 
   # The preview's database, whichever provider forked it.
   database_url = local.database_url

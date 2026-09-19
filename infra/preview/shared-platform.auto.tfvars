@@ -13,10 +13,11 @@ private_ingress_dns_suffix   = "tailXXXX.ts.net"
 # In-cluster URLs of prod's services, for app-only previews (the
 # preview:app-only label -> preview_profile = "app"): the prod workloads
 # module's in_cluster_urls output. Only dagster_webserver_url is required;
-# leave mlflow_tracking_uri empty if prod runs no MLflow.
+# leave the others empty if prod runs no MLflow / Argo.
 shared_service_urls = {
   dagster_webserver_url = "http://dagster-dagster-webserver.dagster.svc.cluster.local:80"
   mlflow_tracking_uri   = ""
+  argo_server_url       = ""
 }
 
 # Where the data objects in packages/dataset/.tether/objects/ live (README
@@ -31,7 +32,11 @@ iceberg_read_namespaces  = ["lake"]
 # iceberg object in the dataset; `aws s3tables get-table` prints it).
 iceberg_table_arns = []
 
-# tofu mode only; tether forks the Neon project itself.
+# tofu mode only; tether forks the Neon project itself. One key per database
+# a full preview stamps: the app's, and each service's own state (Dagster run
+# storage, MLflow tracking store, Argo workflow archive) -- the same keys as
+# the dataset's db/<svc> objects. Sources sharing a project and parent branch
+# share one Neon branch (platform modules/neon-branches).
 neon_branch_sources = {
   app = {
     project_id       = "prod-app-project"
@@ -44,5 +49,17 @@ neon_branch_sources = {
     parent_branch_id = "br-prod-main-1111"
     role_name        = "dagster"
     db_name          = "dagster"
+  }
+  mlflow = {
+    project_id       = "prod-dagster-project"
+    parent_branch_id = "br-prod-main-1111"
+    role_name        = "mlflow"
+    db_name          = "mlflow"
+  }
+  argo = {
+    project_id       = "prod-dagster-project"
+    parent_branch_id = "br-prod-main-1111"
+    role_name        = "argo"
+    db_name          = "argo"
   }
 }

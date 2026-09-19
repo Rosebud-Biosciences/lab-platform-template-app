@@ -73,14 +73,17 @@ variable "preview_profile" {
   description = <<-EOT
     What this preview stamps (platform docs/preview-environments.md, "Two
     preview profiles"):
-      full  webapp + Dagster (the PR's workflows image) + the Ray namespace,
-            isolated on the preview's own database branch. Tests app AND
-            pipeline changes.
-      app   only the webapp, still on its own database branch; Dagster is
-            PROD's, reached through shared_service_urls. Up in ~2 minutes,
-            but runs the app triggers execute prod's code location on prod's
-            data -- for frontend/API-only changes, never for a pipeline or
-            schema change. CI sets it from the preview:app-only PR label.
+      full  webapp + Dagster (the PR's workflows image) + the Ray namespace
+            + MLflow + Argo Workflows (with its archive), every service on
+            its own branch of its own database. Tests app AND pipeline
+            changes, with prod's run history / experiments / archived
+            workflows visible on the preview and nothing written back.
+      app   only the webapp, still on its own database branch; Dagster,
+            MLflow and Argo are PROD's, reached through shared_service_urls.
+            Up in ~2 minutes, but runs the app triggers execute prod's code
+            location on prod's data -- for frontend/API-only changes, never
+            for a pipeline or schema change. CI sets it from the
+            preview:app-only PR label.
   EOT
   type        = string
   default     = "full"
@@ -96,6 +99,7 @@ variable "shared_service_urls" {
   type = object({
     dagster_webserver_url = optional(string, "")
     mlflow_tracking_uri   = optional(string, "")
+    argo_server_url       = optional(string, "")
   })
   default = {}
 
@@ -110,7 +114,7 @@ variable "fork_provider" {
     Who provides the preview's data. "tofu": this stack stamps isolated, empty
     copies (Neon branch, ephemeral bucket, Iceberg namespace) and builds
     DATA_REFS from them. "tether": CI forks the production stores with tether
-    first and passes database_url / dagster_db_* / data_refs in; this stack only
+    first and passes database_url / service_dbs / data_refs in; this stack only
     grants the pods access to those stores. CI sets it from the FORK_PROVIDER
     repository variable.
   EOT
@@ -134,29 +138,30 @@ variable "database_url" {
   sensitive   = true
 }
 
-variable "dagster_db_host" {
-  description = "tether mode: host of Dagster's metadata database on the preview's fork"
-  type        = string
-  default     = ""
+variable "service_dbs" {
+  description = <<-EOT
+    tether mode: the service databases on the preview's fork, keyed by service
+    (dagster, mlflow, argo -- one per db/<svc> object in the dataset), each
+    split into the connection fields the workloads module takes. CI builds it
+    from `tether open db/<svc> --writable --with-password`
+    (.github/scripts/tether-open-all.sh). A service missing here is stamped
+    without a database (Argo: no archive) or, for Dagster and MLflow, fails
+    the plan -- they need one.
+  EOT
+  type = map(object({
+    host     = string
+    dbname   = string
+    user     = string
+    password = string
+  }))
+  default   = {}
+  sensitive = true
 }
 
-variable "dagster_db_name" {
-  description = "tether mode: Dagster's metadata database name"
+variable "data_bucket_kms_key_arn" {
+  description = "tether mode: customer-managed KMS key of data_bucket_arn, if any, so MLflow's role may write artifacts under it (empty for SSE-S3)"
   type        = string
   default     = ""
-}
-
-variable "dagster_db_user" {
-  description = "tether mode: Dagster's metadata database role"
-  type        = string
-  default     = ""
-}
-
-variable "dagster_db_password" {
-  description = "tether mode: Dagster's metadata database password"
-  type        = string
-  default     = ""
-  sensitive   = true
 }
 
 variable "data_refs" {
@@ -212,9 +217,11 @@ variable "neon_branch_sources" {
   description = <<-EOT
     Parent Neon branches to clone for this preview (tofu mode; ignored in tether
     mode, where tether forks the project instead). Key "app" feeds the webapp's
-    DATABASE_URL and the alembic migration step; key "dagster" feeds Dagster's
-    run storage. Set once in shared-platform.auto.tfvars, or read from your
-    platform stack's remote state.
+    DATABASE_URL and the alembic migration step; "dagster", "mlflow" and
+    "argo" feed those services' databases (run storage, tracking store,
+    workflow archive) -- the same keys as the dataset's db/<svc> objects. Set
+    once in shared-platform.auto.tfvars, or read from your platform stack's
+    remote state.
   EOT
   type = map(object({
     project_id       = string

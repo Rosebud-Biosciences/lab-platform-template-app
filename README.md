@@ -91,18 +91,57 @@ directory. See "Ephemeral data".
 The app itself demonstrates **notebooks as app pages**: `/notebooks/` is a
 [marimo](https://marimo.io) notebook served by the webapp in run mode —
 visitors get the reactive UI (filter the greetings table live) but can't edit
-or execute code. Analytical views cost a notebook, not a frontend. It ships
-with no login gate because the platform serves the app tailnet-private;
-reachability is the access control — add auth before exposing it publicly.
+or execute code. Analytical views cost a notebook, not a frontend. The page
+knows who is looking and shows each viewer only the rows the API would (see
+below); anonymous viewers see public rows.
 
-It also demonstrates **identity for free on the tailnet**: `/whoami` echoes
-the `Tailscale-User-Login` header the platform's private ingress proxy asserts
-on every request. Because the tailnet's login provider is your IdP (e.g.
-Google), that header is a real per-user identity with no OAuth client, no
-redirect URIs, and no session state — exactly what per-PR preview URLs want.
-Build on it only where the proxy is the sole route to the pod, and scope who
-can reach each service at the ACL with the workloads module's
-`private_ingress_annotations` (per-service Tailscale device tags).
+It also demonstrates **auth whose state branches with the environment**
+(`packages/app/src/app/auth.py`). The workloads module's `auth` input tells
+the app how identity reaches it (`AUTH_MODE`), and the app accepts exactly
+that source:
+
+- **Identity headers** (`auth = { mode = "headers" }`, the default and what
+  `infra/preview` uses): the platform's private ingress proxy names the
+  caller on every request (`Tailscale-User-Login`), and the module tells the
+  app which header that is (`IDENTITY_HEADER`). The app trusts no header the
+  module has not named, and none at all in `oidc` or `none` mode. Because the
+  tailnet's login provider is your IdP (e.g. Google), that header is a real
+  per-user identity with no OAuth client, no redirect URIs and no session
+  state — exactly what per-PR preview URLs want. Trust it only where the
+  proxy is the sole route to the pod (the module's NetworkPolicy admits only
+  the ingress where the CNI enforces it), and scope who can reach each
+  service at the ACL (`private_ingress_annotations`).
+- **OIDC login** (`auth = { mode = "oidc", ... }`): the app is its own relying
+  party against the platform's issuer (Dex, or any other) using the `OIDC_*`
+  env the module hands it: `/login`, `/auth/callback`, `POST /logout`, with
+  PKCE, a verified email required, and users keyed by issuer and subject (an
+  email is an attribute; a second account presenting it is refused). If the
+  webapp itself sits behind the platform's oauth2-proxy, the app verifies the
+  ID token the proxy forwards against the issuer's keys (RS256 only, a
+  verified email required, the user keyed by issuer and subject as on login)
+  instead of trusting forwarded headers.
+
+Either way the caller becomes rows in the app's **own** database — `users`,
+`memberships` (the IdP's groups claim, re-synced on every login; a header
+without a groups header leaves them alone) and server-side `sessions` — so a
+preview's logins, signups and permission experiments live on the preview's
+database branch and never touch prod, while identity itself (who exists,
+which groups) stays the identity provider's. Sessions are stored as
+`HMAC(SESSION_SECRET, id)`: a preview's branch starts with prod's rows, and
+hashed with prod's secret they cannot log anyone in; preview-up also purges
+them (`python -m db.maintenance purge-sessions`) right after the migrations.
+`COOKIE_SECURE` (from the module's `auth.cookie_secure`) marks both of the
+app's cookies Secure, since behind the ingress the app sees plain http.
+
+The rest is ordinary authorization code: `/whoami` reports login, groups and
+how the identity arrived; greetings carry an `owner_id` and an optional
+`group`, `GET /greetings` returns public ones plus those of the caller's
+groups, posting to a group needs membership, and `auth.require_group("...")`
+gates any route. The `/notebooks/` page applies the same rule: it resolves
+its viewer from the page request (`auth.identity_from`) and reads through
+`Greeting.visible_to`, the one visibility rule every reader shares. The
+platform's [`docs/auth.md`](https://github.com/Rosebud-Biosciences/lab-platform/blob/main/docs/auth.md)
+has the design and the state map.
 
 Two workflow patterns to try in the Dagster UI:
 
@@ -185,13 +224,23 @@ NodePool); pods just add the `nvidia.com/gpu` toleration and resource limit.
 A preview needs data, and there are two ways to give it some. Both end in the
 same contract, so nothing in `packages/` knows which is in use:
 
-- `DATABASE_URL` — the preview's Postgres.
+- `DATABASE_URL` — the preview's Postgres (`db/app`).
 - `DATA_REFS` — JSON `key -> address`, one entry per object in the dataset's
   manifests, in the forms `tether open --json` prints
   (`s3://…/x.icechunk#<branch>`, `lake.table#<branch>`, `s3://…/x.lance#<branch>`,
   `s3://…/x.delta[@vN]`, `s3://…/prefix/`). `dataset.refs` parses it; a pinned
   version or snapshot makes the opener read-only. The webapp's `/data` echoes
   what it received.
+- the **services' own databases** — Dagster's run storage, MLflow's tracking
+  store, Argo's workflow archive (`db/dagster`, `db/mlflow`, `db/argo`) — each
+  a branch of prod's, handed to the stamped service by the preview stack
+  (`service_dbs` in tether mode, `neon_branch_sources` in tofu mode). Service
+  state is data too: a full preview shows prod's run history, experiments and
+  archived workflows and writes to none of them. MLflow's artifacts are the
+  one non-branchable piece (write-once blobs; tether's object-store backend
+  has no fork): they go to a per-preview prefix (`<ephemeral bucket>/mlflow`
+  or `<data bucket>/tether/mlflow/pr<N>/`) that `tether-down.sh` deletes when
+  the preview retires.
 
 ### Where the dataset lives
 
@@ -241,7 +290,7 @@ variable) selects the provider:
 | | `tofu` (default) | `tether` |
 | --- | --- | --- |
 | Who forks | the preview stack, with the platform's `neon-branches`, `preview-storage`, `iceberg-branches` | CI's `fork-data` job, with `tether new -b pr<N> --eager` |
-| Postgres | copy-on-write Neon branch, tuned compute | tether fork of the Neon project (one branch serves `app` and `dagster`), `--pin record` |
+| Postgres (`db/app` and the services' `db/dagster`, `db/mlflow`, `db/argo`) | copy-on-write Neon branches, tuned compute (sources sharing a project share a branch) | tether fork of the Neon project (one branch serves every database), `--pin record` |
 | Icechunk / Lance / Delta / files | fresh, **empty** copies in the preview's ephemeral bucket | branches inside the **production** stores, forked from the last pinned state |
 | Iceberg | empty namespace of the preview's own | a branch on the prod table |
 | Across pushes to the PR | data persists | re-forked from the baseline each push |
@@ -262,8 +311,8 @@ The tether loop, end to end (tether mode):
 ```mermaid
 flowchart LR
   Label[PR labeled preview] --> Fork[fork-data: tether new -b prN --eager]
-  Fork --> Up[preview-up: apply with database_url + data_refs]
-  Up --> Pods[pods: DATABASE_URL + DATA_REFS on the fork]
+  Fork --> Up[preview-up: apply with database_url + service_dbs + data_refs]
+  Up --> Pods[pods: DATABASE_URL + DATA_REFS on the fork; Dagster/MLflow/Argo on their forked databases]
   Pods --> Migrate[migrate: alembic on the fork]
   Close[PR closed / unlabeled] --> Destroy[preview-down: destroy]
   Destroy --> DataDown[data-down: merged? promote zarr+lake, then release; else release + delete PR-created stores]
@@ -283,8 +332,9 @@ one.
 
 Prerequisites (once, from the platform repo): a shared cluster + Tailscale
 operator (`examples/complete`), the bootstrap stack's CI/preview OIDC roles and
-state bucket (`aws/bootstrap`), an ECR repository, and Neon projects for
-`app` and `dagster`.
+state bucket (`aws/bootstrap`), an ECR repository, and Neon databases for
+`app`, `dagster`, `mlflow` and `argo` (one project with four databases, or
+several; see `shared-platform.auto.tfvars`).
 
 1. The `Rosebud-Biosciences/lab-platform` references (workflow
    `uses:` lines, `infra/preview` module sources, links) point at the upstream
@@ -322,7 +372,8 @@ state bucket (`aws/bootstrap`), an ECR repository, and Neon projects for
    project defaults, so this is where the cost stays where the tofu path had
    it. Grant the data-access policy to a role and set `DATA_ROLE_ARN` (or
    attach it to `PREVIEW_ROLE_ARN`), set `DATA_ROOT_URI`
-   (`s3://<bucket>/tether/`) so an abandoned PR's own stores can be deleted,
+   (`s3://<bucket>/tether/`) so an abandoned PR's own stores, and every
+   retired preview's MLflow artifacts, can be deleted,
    then `FORK_PROVIDER=tether`. Same-repo PRs only: `fork-data` pushes the
    `pr<N>` bookmark branch. Once real stores exist, `ENABLE_TETHER_MATRIX=true`
    turns on the weekly live test.

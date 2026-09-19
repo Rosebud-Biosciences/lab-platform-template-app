@@ -1,0 +1,12 @@
+key = "db/argo"
+kind = "neon"
+recoverable = true
+
+[locator]
+project_id = "your-neon-project"
+database = "argo"
+role = "argo"
+
+[policy]
+file = "immutable"
+pin = "record"

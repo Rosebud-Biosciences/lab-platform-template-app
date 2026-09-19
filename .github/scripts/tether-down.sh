@@ -19,10 +19,19 @@
 #      means prod moved since the fork: the honest outcome is a recompute by
 #      prod's Dagster with the merged code, and the branches are KEPT so nothing
 #      is lost until someone decides.
-#   3. Drop the bookmark and let gc judge its branches. --force-prune is the
-#      only way BRANCH_IS_STORAGE systems (Neon) and unpinned writes go, which
-#      for an abandoned preview is the intent.
-#   4. Not merged: delete stores the PR itself created (objects in its
+#   3. Always -- merged or not, landed or not: delete the preview's MLflow
+#      artifact prefix, DATA_ROOT_URI/mlflow/<bookmark>/. MLflow's runs are
+#      service state on the forked db/mlflow, which Neon cannot promote, so
+#      the artifacts those runs wrote are test output in every outcome; a
+#      failed landing in step 2 keeps branches that might still land, never
+#      these. (Artifacts are not a tether object: tether's object-store
+#      backend has no fork, and the stack derives the prefix per preview --
+#      infra/preview/main.tf.)
+#   4. Drop the bookmark and let gc judge its branches (skipped when step 2
+#      kept them). --force-prune is the only way BRANCH_IS_STORAGE systems
+#      (Neon) and unpinned writes go, which for an abandoned preview is the
+#      intent.
+#   5. Not merged: delete stores the PR itself created (objects in its
 #      manifests that main's do not have), under DATA_ROOT_URI only. This is the
 #      outside-in version of a tether feature in progress; once tether records
 #      store creation in its op log, `gc` does this itself.
@@ -32,8 +41,9 @@
 # DATASET_ROOT is a submodule.
 #
 # Env: PROMOTABLE_KEYS (space-separated keys `promote` may fast-forward),
-#      DATA_ROOT_URI (s3://bucket/prefix/ under which PR-created stores may be
-#      deleted; unset skips step 4), NEON_API_KEY, AWS credentials.
+#      DATA_ROOT_URI (s3://bucket/prefix/ under which the MLflow artifacts and
+#      PR-created stores may be deleted; unset skips steps 3 and 5),
+#      NEON_API_KEY, AWS credentials.
 
 set -euo pipefail
 # shellcheck source=tether-env.sh
@@ -68,6 +78,15 @@ if [ "$merged" = "true" ]; then
   dgit checkout --quiet "$current"
 fi
 
+# Step 3: the preview's MLflow artifacts, before any exit (see the header).
+if [ -n "${DATA_ROOT_URI:-}" ]; then
+  artifacts="${DATA_ROOT_URI%/}/mlflow/$bookmark/"
+  if aws s3 ls "$artifacts" >/dev/null 2>&1; then
+    echo "tether-down: deleting MLflow artifacts $artifacts"
+    aws s3 rm --recursive --quiet "$artifacts"
+  fi
+fi
+
 if [ "$landed" != "true" ]; then
   exit 0
 fi
@@ -80,7 +99,7 @@ if [ "$merged" = "true" ] || [ -z "${DATA_ROOT_URI:-}" ]; then
   exit 0
 fi
 
-# Step 4: stores this PR created. Its manifests versus main's, kinds whose
+# Step 5: stores this PR created. Its manifests versus main's, kinds whose
 # store is a prefix tether/the job created, URIs under DATA_ROOT_URI only.
 # Paths are relative to the dataset root (git resolves pathspecs and `./`
 # object paths against the cwd), so this reads the same in both layouts.
