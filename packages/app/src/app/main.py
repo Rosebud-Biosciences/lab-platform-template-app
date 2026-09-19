@@ -6,28 +6,53 @@ Runtime contract with the platform's workloads module:
     preview that is a copy-on-write Neon branch, for prod the real database;
   - /healthz is the readiness/liveness probe target and must not touch the DB
     (a database blip should not have the kubelet restarting pods);
-  - APP_ENV is plain env (webapp_env) so the page can say where it runs.
+  - APP_ENV is plain env (webapp_env) so the page can say where it runs;
+  - identity: AUTH_MODE names the one source the app accepts -- IDENTITY_HEADER
+    ("headers": the private network's proxy names the caller), OIDC_* +
+    SESSION_SECRET ("oidc": the app runs its own login against the platform's
+    issuer), or the proxy's verified ID token (AUTH_PROXIED + IDENTITY_JWT_*).
+    COOKIE_SECURE marks both of the app's cookies Secure. See app.auth.
 """
 
 import os
+import secrets
 from pathlib import Path
+from typing import Annotated
 
 import dataset
 import marimo
-from db.engine import get_engine
 from db.models import Greeting
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
+from starlette.middleware.sessions import SessionMiddleware
+
+from app import auth, runtime
+from app.auth import CurrentIdentity, Identity, require_user
 
 app = FastAPI(title="lab-platform template app")
 
+# Authlib keeps the OAuth state/nonce in Starlette's signed-cookie session for
+# the few seconds of a login round trip. SESSION_SECRET comes from the
+# workloads module in auth mode "oidc"; a random one is fine otherwise (the
+# login session itself is a database row, app.auth, not this cookie).
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.environ.get("SESSION_SECRET") or secrets.token_urlsafe(32),
+    session_cookie="app_oauth_state",
+    same_site="lax",
+    # Behind the platform's ingress the app sees plain http, so Secure cannot
+    # be inferred from the request; the module passes auth.cookie_secure.
+    https_only=auth.settings().cookie_secure is True,
+)
+app.include_router(auth.router)
+
 # Apps with built-in notebooks: marimo serves the notebook below as a reactive
 # read-only page (run mode — visitors drive the UI elements, never the code).
-# There's no auth here by design: the platform serves this app on the private
-# tailnet, so reachability is the access control. Put it behind a login check
-# before exposing it publicly.
+# The page is subject to the same authorization as the API: it resolves the
+# viewer from the page request (app.auth.identity_from) and reads through
+# Greeting.visible_to, so a group's greetings reach only its members here too.
 _notebooks = (
     marimo.create_asgi_app()
     .with_app(path="", root=str(Path(__file__).parent / "notebooks" / "greetings.py"))
@@ -35,15 +60,10 @@ _notebooks = (
 )
 app.mount("/notebooks", _notebooks)
 
-_engine: Engine | None = None
-
 
 def engine() -> Engine:
-    """Lazy so importing the app (tests, /healthz) needs no DATABASE_URL."""
-    global _engine
-    if _engine is None:
-        _engine = get_engine()
-    return _engine
+    """The shared lazy engine (app.runtime); kept here for the tests' sake."""
+    return runtime.engine()
 
 
 @app.get("/healthz")
@@ -52,20 +72,22 @@ def healthz() -> dict:
 
 
 @app.get("/whoami")
-def whoami(request: Request) -> dict:
-    """Who the platform says is calling — identity for free on the tailnet.
+def whoami(identity: CurrentIdentity) -> dict:
+    """Who the platform says is calling, and how it knows.
 
-    Served through the platform's private ingress (a Tailscale Ingress proxy),
-    every request carries the caller's tailnet login in identity headers; and
-    since the tailnet's login provider is your IdP (e.g. Google), that login is
-    a real user identity. No OAuth client, no redirect URIs, no session state —
-    which is exactly what per-PR preview URLs want. Build per-user features on
-    these headers only where the proxy is the sole route to the pod; local dev
-    and in-cluster calls simply see null.
+    `source` is "session" after an OIDC login through /login, "token" when the
+    platform's oauth2-proxy forwarded a verified ID token, "header" when a
+    trusted proxy (the tailnet's Ingress) named the caller, null when nobody
+    did (local dev, in-cluster calls, AUTH_MODE=none). Either way the caller is
+    now a row in users/memberships -- on THIS environment's database branch.
     """
+    if identity is None:
+        return {"login": None, "name": None, "groups": [], "source": None}
     return {
-        "login": request.headers.get("Tailscale-User-Login"),
-        "name": request.headers.get("Tailscale-User-Name"),
+        "login": identity.login,
+        "name": identity.user.name,
+        "groups": identity.groups,
+        "source": identity.source,
     }
 
 
@@ -88,25 +110,69 @@ def _data_refs() -> list[tuple[str, dataset.Ref]]:
     return [(key, dataset.parse(key, address)) for key, address in sorted(dataset.refs().items())]
 
 
+def _visible_to(identity: Identity | None):
+    """Greetings the caller may see: public ones, plus their groups' ones."""
+    return Greeting.visible_to(identity.groups if identity else [])
+
+
 @app.get("/")
-def index() -> dict:
+def index(identity: CurrentIdentity) -> dict:
     with Session(engine()) as session:
-        count = session.scalar(select(func.count()).select_from(Greeting))
+        count = session.scalar(
+            select(func.count()).select_from(Greeting).where(_visible_to(identity))
+        )
     return {
         "message": "Hello, world",
         "environment": os.environ.get("APP_ENV", "dev"),
         "greetings": count,
+        "login": identity.login if identity else None,
     }
 
 
 class GreetingIn(BaseModel):
     name: str
+    # A group makes the greeting visible to that group only; the caller must
+    # belong to it. None = public.
+    group: str | None = None
+
+
+def _greeting_out(g: Greeting) -> dict:
+    return {"id": g.id, "name": g.name, "group": g.group, "owner_id": g.owner_id}
+
+
+@app.get("/greetings")
+def list_greetings(identity: CurrentIdentity) -> list[dict]:
+    """Different groups, different data: each caller sees public greetings
+    plus those of the groups they belong to."""
+    with Session(engine()) as session:
+        rows = session.scalars(
+            select(Greeting).where(_visible_to(identity)).order_by(Greeting.id)
+        ).all()
+        return [_greeting_out(g) for g in rows]
+
+
+@app.get("/greetings/mine")
+def my_greetings(identity: Annotated[Identity, Depends(require_user)]) -> list[dict]:
+    with Session(engine()) as session:
+        rows = session.scalars(
+            select(Greeting).where(Greeting.owner_id == identity.user.id).order_by(Greeting.id)
+        ).all()
+        return [_greeting_out(g) for g in rows]
 
 
 @app.post("/greetings", status_code=201)
-def create_greeting(body: GreetingIn) -> dict:
+def create_greeting(body: GreetingIn, identity: CurrentIdentity) -> dict:
+    if body.group is not None:
+        if identity is None:
+            raise HTTPException(status_code=401, detail="login required to post to a group")
+        if body.group not in identity.groups:
+            raise HTTPException(status_code=403, detail=f"not a member of {body.group!r}")
     with Session(engine()) as session:
-        greeting = Greeting(name=body.name)
+        greeting = Greeting(
+            name=body.name,
+            group=body.group,
+            owner_id=identity.user.id if identity else None,
+        )
         session.add(greeting)
         session.commit()
-        return {"id": greeting.id, "name": greeting.name}
+        return _greeting_out(greeting)

@@ -27,3 +27,11 @@ jobs:
       - run: uv run ty check
 
       - run: uv run pytest
+
+      # The dev group (pytest, httpx, ...) is installed above, which can hide
+      # a missing runtime dependency. Import each deployable's entrypoint in an
+      # environment with its runtime dependencies only, as its image has.
+      - name: Deployables import with runtime dependencies only
+        run: |
+          uv run --frozen --isolated --no-dev --package app python -c "import app.main"
+          uv run --frozen --isolated --no-dev --package workflows python -c "import workflows"
