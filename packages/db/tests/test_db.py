@@ -44,6 +44,7 @@ def test_purge_sessions_empties_the_table(tmp_path, monkeypatch: pytest.MonkeyPa
     with Session(engine) as session:
         assert session.scalar(select(func.count()).select_from(LoginSession)) == 0
         assert session.scalar(select(func.count()).select_from(User)) == 1  # users stay
+    assert maintenance.main(["lock-notebook-roles"]) == 0  # SQLite has no roles
     assert maintenance.main(["nonsense"]) == 2
 
 
@@ -80,3 +81,22 @@ def test_migrations_round_trip_on_sqlite(tmp_path, monkeypatch: pytest.MonkeyPat
 
     command.downgrade(config, "base")
     assert inspect(engine).get_table_names() == ["alembic_version"]
+
+
+def test_scoped_is_a_no_op_without_row_security() -> None:
+    # SQLite has no roles: the query's own filter (Greeting.visible_to) is the rule.
+    from db.engine import scoped
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all([Greeting(name="public"), Greeting(name="grouped", group="/lab")])
+        session.commit()
+        assert len(scoped(session, ["/lab"]).scalars(select(Greeting)).all()) == 2
+
+
+def test_scoped_refuses_group_names_it_cannot_encode() -> None:
+    from db.engine import scoped
+
+    with Session(create_engine("sqlite:///:memory:")) as session, pytest.raises(ValueError):
+        scoped(session, ["/lab", "a,b"])

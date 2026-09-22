@@ -18,11 +18,14 @@ Runtime contract with the platform's workloads module:
 
 import os
 import secrets
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated
 
 import dataset
 import marimo
+from db.engine import scoped
 from db.models import Greeting
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
@@ -56,7 +59,8 @@ app.include_router(groups.router)
 # read-only page (run mode — visitors drive the UI elements, never the code).
 # The page is subject to the same authorization as the API: it resolves the
 # viewer from the page request (app.auth.identity_from) and reads through
-# Greeting.visible_to, so a group's greetings reach only its members here too.
+# Greeting.visible_to (and, on PostgreSQL, row-level security: db.engine.scoped),
+# so a group's greetings reach only its members here too.
 _notebooks = (
     marimo.create_asgi_app()
     .with_app(path="", root=str(Path(__file__).parent / "notebooks" / "greetings.py"))
@@ -119,9 +123,21 @@ def _visible_to(identity: Identity | None):
     return Greeting.visible_to(identity.groups if identity else [])
 
 
+@contextmanager
+def _as_caller(identity: Identity | None) -> Iterator[Session]:
+    """A session the database itself confines to the caller's greetings.
+
+    On PostgreSQL, row-level security (db.engine.scoped) enforces the same
+    rule as `_visible_to`, which the queries keep applying: SQLite has no
+    row security, and the database's check backs up the code's.
+    """
+    with Session(engine()) as session:
+        yield scoped(session, identity.groups if identity else [])
+
+
 @app.get("/")
 def index(identity: CurrentIdentity) -> dict:
-    with Session(engine()) as session:
+    with _as_caller(identity) as session:
         count = session.scalar(
             select(func.count()).select_from(Greeting).where(_visible_to(identity))
         )
@@ -148,7 +164,7 @@ def _greeting_out(g: Greeting) -> dict:
 def list_greetings(identity: CurrentIdentity) -> list[dict]:
     """Different groups, different data: each caller sees public greetings
     plus those of the groups they belong to."""
-    with Session(engine()) as session:
+    with _as_caller(identity) as session:
         rows = session.scalars(
             select(Greeting).where(_visible_to(identity)).order_by(Greeting.id)
         ).all()
@@ -157,7 +173,7 @@ def list_greetings(identity: CurrentIdentity) -> list[dict]:
 
 @app.get("/greetings/mine")
 def my_greetings(identity: Annotated[Identity, Depends(require_user)]) -> list[dict]:
-    with Session(engine()) as session:
+    with _as_caller(identity) as session:
         rows = session.scalars(
             select(Greeting).where(Greeting.owner_id == identity.user.id).order_by(Greeting.id)
         ).all()
@@ -171,12 +187,15 @@ def create_greeting(body: GreetingIn, identity: CurrentIdentity) -> dict:
             raise HTTPException(status_code=401, detail="login required to post to a group")
         if body.group not in identity.groups:
             raise HTTPException(status_code=403, detail=f"not a member of {body.group!r}")
-    with Session(engine()) as session:
+    with _as_caller(identity) as session:
         greeting = Greeting(
             name=body.name,
             group=body.group,
             owner_id=identity.user.id if identity else None,
         )
         session.add(greeting)
+        # Read the row back inside the scoped transaction: the commit ends it.
+        session.flush()
+        out = _greeting_out(greeting)
         session.commit()
-        return _greeting_out(greeting)
+    return out

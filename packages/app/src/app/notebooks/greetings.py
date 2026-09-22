@@ -44,12 +44,15 @@ def _(mo):
 
 @app.cell
 def _(mo, pattern, viewer_groups):
-    from db.engine import get_engine
+    from db.engine import get_engine, scoped
     from db.models import Greeting
     from sqlalchemy import select
     from sqlalchemy.orm import Session
 
+    # scoped: on PostgreSQL, row-level security holds the query to the
+    # viewer's groups too, whatever the filter below says.
     with Session(get_engine()) as session:
+        scoped(session, viewer_groups)
         names = list(
             session.scalars(
                 select(Greeting.name)

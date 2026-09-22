@@ -130,6 +130,11 @@ which groups) stays the identity provider's. Sessions are stored as
 `HMAC(SESSION_SECRET, id)`: a preview's branch starts with prod's rows, and
 hashed with prod's secret they cannot log anyone in; preview-up also purges
 them (`python -m db.maintenance purge-sessions`) right after the migrations.
+The branch also inherits the platform's `nb_<tenant>__<group>` notebook
+roles **with their passwords** (Neon copies roles created by SQL as they
+are), so preview-up turns their logins off on the branch
+(`python -m db.maintenance lock-notebook-roles`, which refuses anywhere but
+Neon, where roles are per branch).
 `COOKIE_SECURE` (from the module's `auth.cookie_secure`) marks both of the
 app's cookies Secure, since behind the ingress the app sees plain http.
 
@@ -156,6 +161,23 @@ IdP's, marked `source = 'app'`, so each login's sync replaces only the IdP's
 rows, and an `app:` group works anywhere a group does: as a greeting's group,
 in `require_group`. Like the rest of the auth state, a preview's app groups
 are the preview's.
+
+On PostgreSQL the database enforces the visibility rule as well: **row-level
+security** on `greetings` (migration `0004`). The app's login role switches
+to `app_reader` for each request's transaction and names the caller's groups
+in the `app.groups` setting (`db.engine.scoped`, `SET LOCAL` — nothing
+outlives the transaction). Notebooks and tenant compute that connect directly
+log in as roles the platform creates, `nb_<tenant>__<group>`, granted
+`app_notebook`: the policy reads their group from the name they logged in
+with (`session_user`) — `nb_lab__authors` sees `/lab/authors` — whatever they
+set `app.groups` to, and even after `SET ROLE app_notebook`, which changes
+`current_user` but not `session_user`. The table owner — migrations, the Dagster
+pipelines — is unaffected. The queries keep their `Greeting.visible_to`
+filter all the same: on SQLite (the tests, a laptop) the migration is a no-op
+and that filter is the only rule; on PostgreSQL it is the first of two. The
+two roles are cluster-wide, so the migration creates them only if missing and
+its downgrade leaves them. The row-security tests need a real server,
+`TEST_POSTGRES_URL` (CI starts one); without it they skip.
 
 The platform's [`docs/auth.md`](https://github.com/Rosebud-Biosciences/lab-platform/blob/main/docs/auth.md)
 has the design and the state map.

@@ -250,3 +250,11 @@ jobs:
         env:
           DATABASE_URL: ${{ steps.dburl.outputs.url }}
         run: uv run python -m db.maintenance purge-sessions
+
+      # Neon copies roles made by SQL with their passwords, so prod's
+      # nb_<tenant>__<group> notebook credentials would log in to the branch.
+      # Previews run no notebooks. Never run this against prod.
+      - name: Turn off the notebook logins the branch inherited
+        env:
+          DATABASE_URL: ${{ steps.dburl.outputs.url }}
+        run: uv run python -m db.maintenance lock-notebook-roles

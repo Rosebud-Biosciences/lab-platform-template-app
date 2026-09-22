@@ -1,4 +1,7 @@
+import os
+import secrets
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -7,10 +10,12 @@ from db.models import Base, Greeting, Membership, Session, User
 from fastapi.testclient import TestClient
 from joserfc import jwt
 from joserfc.jwk import ECKey, KeySet, RSAKey
-from sqlalchemy import func, select
+from sqlalchemy import create_engine, func, select, text, true
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session as DbSession
 
 ISSUER = "http://dex.dex.svc.cluster.local:5556/dex"
+ALEMBIC_INI = Path(__file__).parents[2] / "db" / "alembic.ini"
 
 AUTH_ENV = (
     "AUTH_MODE",
@@ -30,14 +35,18 @@ AUTH_ENV = (
 )
 
 
-@pytest.fixture
-def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/app.db")
+def _fresh_app(monkeypatch: pytest.MonkeyPatch, database_url: str) -> None:
+    monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("SESSION_SECRET", "test-environment-secret")
     for var in AUTH_ENV:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(auth, "_oauth", None)
     runtime.reset_engine()  # fresh engine per test
+
+
+@pytest.fixture
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    _fresh_app(monkeypatch, f"sqlite:///{tmp_path}/app.db")
     Base.metadata.create_all(runtime.engine())
     return TestClient(main.app)
 
@@ -783,6 +792,68 @@ def test_app_group_greetings_are_visible_to_members_only(tailnet: TestClient) ->
 
     tailnet.delete("/groups/reviewers/members/bob@lab.org", headers=ann)
     assert names(bob) == ["hello"]
+
+
+# ------------------------------------------------------------------------------
+# On PostgreSQL the database enforces the same rule (row-level security,
+# migration 0004). Skipped unless TEST_POSTGRES_URL names a server whose user
+# may create databases (CI's postgres service; see packages/db/tests/test_rls.py).
+# ------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def postgres(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    server = os.environ.get("TEST_POSTGRES_URL")
+    if not server:
+        pytest.skip("needs TEST_POSTGRES_URL (a PostgreSQL server)")
+    from alembic import command
+    from alembic.config import Config
+
+    admin = create_engine(server, isolation_level="AUTOCOMMIT")
+    name = f"app_{secrets.token_hex(4)}"
+    with admin.connect() as c:
+        c.execute(text(f"CREATE DATABASE {name}"))
+    try:
+        _fresh_app(
+            monkeypatch, make_url(server).set(database=name).render_as_string(hide_password=False)
+        )
+        command.upgrade(Config(str(ALEMBIC_INI)), "head")
+        yield TestClient(main.app)
+    finally:
+        runtime.engine().dispose()
+        runtime.reset_engine()
+        with admin.connect() as c:
+            c.execute(text(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
+        admin.dispose()
+
+
+def test_on_postgres_the_api_reads_and_writes_under_row_security(
+    postgres: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("IDENTITY_HEADER", "X-Forwarded-Email")
+    monkeypatch.setenv("IDENTITY_GROUPS_HEADER", "X-Forwarded-Groups")
+    ann, bob = as_("ann@lab.org", "/lab/authors"), as_("bob@lab.org", "/acme/research")
+    assert postgres.post("/greetings", json={"name": "hello"}).status_code == 201
+    for_authors = {"name": "for authors", "group": "/lab/authors"}
+    assert postgres.post("/greetings", json=for_authors, headers=ann).status_code == 201
+    postgres.post("/groups", json={"name": "reviewers"}, headers=ann)
+    for_reviewers = {"name": "for reviewers", "group": "app:reviewers"}
+    assert postgres.post("/greetings", json=for_reviewers, headers=ann).status_code == 201
+
+    def names(headers: dict[str, str] | None = None, path: str = "/greetings") -> list[str]:
+        return [g["name"] for g in postgres.get(path, headers=headers).json()]
+
+    everything = ["hello", "for authors", "for reviewers"]
+    assert names(ann) == everything
+    assert names(ann, "/greetings/mine") == ["for authors", "for reviewers"]
+    assert postgres.get("/", headers=ann).json()["greetings"] == 3
+    assert names(bob) == names() == ["hello"]
+
+    # Without the code's filter, the database still holds the line.
+    monkeypatch.setattr(main, "_visible_to", lambda identity: true())
+    assert names(ann) == everything
+    assert names(bob) == names() == ["hello"]
+    assert postgres.get("/", headers=bob).json()["greetings"] == 1
 
 
 def test_data_reports_the_refs_the_pod_received(monkeypatch: pytest.MonkeyPatch) -> None:
