@@ -139,8 +139,25 @@ how the identity arrived; greetings carry an `owner_id` and an optional
 groups, posting to a group needs membership, and `auth.require_group("...")`
 gates any route. The `/notebooks/` page applies the same rule: it resolves
 its viewer from the page request (`auth.identity_from`) and reads through
-`Greeting.visible_to`, the one visibility rule every reader shares. The
-platform's [`docs/auth.md`](https://github.com/Rosebud-Biosciences/lab-platform/blob/main/docs/auth.md)
+`Greeting.visible_to`, the one visibility rule every reader shares.
+
+Not every group has to come from the IdP. **App-managed groups**
+(`packages/app/src/app/groups.py`) are the app's own — a review panel, a
+reading club — stored and shown as `app:<name>`, a namespace no IdP group (a
+path: `/<tenant>/<group>`) can collide with; an IdP group spelled `app:…` is
+dropped at sync. Anyone logged in may `POST /groups` and becomes the group's
+admin; its admins add members by email (`POST /groups/<name>/members` — a
+bare `users` row until that person's first login binds it), promote and
+remove them; and the platform's **superadmins** — members of
+`APP_ADMIN_GROUP` (default `/platform-admins`), or an address in
+`APP_ADMIN_EMAILS` where identity arrives without groups (the tailnet's
+header) — administer every group. Their memberships share the table with the
+IdP's, marked `source = 'app'`, so each login's sync replaces only the IdP's
+rows, and an `app:` group works anywhere a group does: as a greeting's group,
+in `require_group`. Like the rest of the auth state, a preview's app groups
+are the preview's.
+
+The platform's [`docs/auth.md`](https://github.com/Rosebud-Biosciences/lab-platform/blob/main/docs/auth.md)
 has the design and the state map.
 
 Two workflow patterns to try in the Dagster UI:

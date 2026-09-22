@@ -25,6 +25,8 @@ AUTH_ENV = (
     "IDENTITY_JWT_ISSUER",
     "IDENTITY_JWT_AUDIENCE",
     "COOKIE_SECURE",
+    "APP_ADMIN_GROUP",
+    "APP_ADMIN_EMAILS",
 )
 
 
@@ -578,6 +580,209 @@ def test_notebook_hides_group_greetings_from_non_members(client: TestClient) -> 
 
     assert defs["viewer_groups"] == []
     assert defs["names"] == ["hello"]
+
+
+# ------------------------------------------------------------------------------
+# App-managed groups (app:<name>): created and administered in the app, kept
+# across the identity provider's syncs
+# ------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def tailnet(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    """Header mode: every request names its caller, and optionally their IdP groups."""
+    monkeypatch.setenv("IDENTITY_HEADER", "X-Forwarded-Email")
+    monkeypatch.setenv("IDENTITY_GROUPS_HEADER", "X-Forwarded-Groups")
+    return client
+
+
+def as_(email: str, *groups: str) -> dict[str, str]:
+    headers = {"X-Forwarded-Email": email}
+    if groups:
+        headers["X-Forwarded-Groups"] = ",".join(groups)
+    return headers
+
+
+def groups_of(client: TestClient, email: str) -> list[str]:
+    return client.get("/whoami", headers=as_(email)).json()["groups"]
+
+
+def test_anyone_logged_in_creates_an_app_group_and_administers_it(tailnet: TestClient) -> None:
+    assert tailnet.post("/groups", json={"name": "reviewers"}).status_code == 401
+
+    created = tailnet.post("/groups", json={"name": "reviewers"}, headers=as_("ann@lab.org"))
+    assert created.status_code == 201
+    assert created.json() == {"name": "app:reviewers", "role": "admin"}
+    assert groups_of(tailnet, "ann@lab.org") == ["app:reviewers"]
+    assert tailnet.get("/groups", headers=as_("ann@lab.org")).json() == [
+        {"name": "app:reviewers", "role": "admin"}
+    ]
+    assert tailnet.get("/groups", headers=as_("bob@lab.org")).json() == []
+
+    again = tailnet.post("/groups", json={"name": "reviewers"}, headers=as_("bob@lab.org"))
+    assert again.status_code == 409
+
+
+@pytest.mark.parametrize("name", ["Reviewers", "app:reviewers", "lab/authors", "a,b", "", "9x"])
+def test_app_group_names_are_bare_slugs(tailnet: TestClient, name: str) -> None:
+    response = tailnet.post("/groups", json={"name": name}, headers=as_("ann@lab.org"))
+    assert response.status_code == 422
+
+
+def test_group_admins_manage_members(tailnet: TestClient) -> None:
+    ann, bob, carl = as_("ann@lab.org"), as_("bob@lab.org"), as_("carl@lab.org")
+    tailnet.post("/groups", json={"name": "reviewers"}, headers=ann)
+
+    added = tailnet.post("/groups/reviewers/members", json={"email": "bob@lab.org"}, headers=ann)
+    assert added.status_code == 201 and added.json()["role"] == "member"
+    assert groups_of(tailnet, "bob@lab.org") == ["app:reviewers"]
+    assert tailnet.get("/groups", headers=bob).json() == [
+        {"name": "app:reviewers", "role": "member"}
+    ]
+
+    # A member is not an admin, and an outsider is neither.
+    for caller in (bob, carl):
+        assert tailnet.get("/groups/reviewers/members", headers=caller).status_code == 403
+        assert (
+            tailnet.post(
+                "/groups/reviewers/members", json={"email": "carl@lab.org"}, headers=caller
+            ).status_code
+            == 403
+        )
+        assert (
+            tailnet.delete("/groups/reviewers/members/ann@lab.org", headers=caller).status_code
+            == 403
+        )
+    assert tailnet.get("/groups/nope/members", headers=ann).status_code == 404
+    assert tailnet.get("/groups/NOPE/members", headers=ann).status_code == 404
+    assert tailnet.get("/groups/reviewers/members").status_code == 401
+
+    assert tailnet.get("/groups/reviewers/members", headers=ann).json() == [
+        {"email": "ann@lab.org", "name": None, "role": "admin"},
+        {"email": "bob@lab.org", "name": None, "role": "member"},
+    ]
+
+    # Promoting an existing member is an update (200), and makes them an admin.
+    promoted = tailnet.post(
+        "/groups/reviewers/members", json={"email": "bob@lab.org", "role": "admin"}, headers=ann
+    )
+    assert promoted.status_code == 200 and promoted.json()["role"] == "admin"
+    assert (
+        tailnet.post(
+            "/groups/reviewers/members", json={"email": "carl@lab.org"}, headers=bob
+        ).status_code
+        == 201
+    )
+
+    assert tailnet.delete("/groups/reviewers/members/bob@lab.org", headers=ann).status_code == 204
+    assert groups_of(tailnet, "bob@lab.org") == []
+    assert tailnet.delete("/groups/reviewers/members/bob@lab.org", headers=ann).status_code == 404
+
+
+def test_a_member_added_by_email_is_bound_on_first_login(oidc: TestClient, monkeypatch) -> None:
+    monkeypatch.setenv("IDENTITY_HEADER", "X-Forwarded-Email")
+    admin = TestClient(main.app)
+    admin.post("/groups", json={"name": "reviewers"}, headers=as_("ann@lab.org"))
+    added = admin.post(
+        "/groups/reviewers/members",
+        json={"email": "kilgore@kilgore.trout"},
+        headers=as_("ann@lab.org"),
+    )
+    assert added.status_code == 201
+    with DbSession(runtime.engine()) as db:
+        user = db.scalar(select(User).where(User.email == "kilgore@kilgore.trout"))
+        assert user is not None and user.subject is None  # a bare row, never logged in
+
+    login(oidc)  # groups: authors, lab
+    with DbSession(runtime.engine()) as db:
+        users = db.scalars(select(User).where(User.email == "kilgore@kilgore.trout")).all()
+    assert len(users) == 1 and users[0].subject == f"{ISSUER}|CgRtb2Nr"
+    assert oidc.get("/whoami").json()["groups"] == ["app:reviewers", "authors", "lab"]
+
+
+def test_idp_syncs_keep_app_memberships(oidc: TestClient, monkeypatch) -> None:
+    login(oidc)  # groups: authors, lab
+    assert oidc.post("/groups", json={"name": "reviewers"}).status_code == 201
+
+    # Each login replaces the IdP's memberships, and only those.
+    monkeypatch.setattr(auth, "claims_from_callback", claims(groups=["lab"]))
+    login(oidc)
+    assert oidc.get("/whoami").json()["groups"] == ["app:reviewers", "lab"]
+    monkeypatch.setattr(auth, "claims_from_callback", claims(groups=[]))
+    login(oidc)
+    assert oidc.get("/whoami").json()["groups"] == ["app:reviewers"]
+
+    # So does a proxy's groups header (the same sync).
+    monkeypatch.setenv("IDENTITY_HEADER", "X-Forwarded-Email")
+    monkeypatch.setenv("IDENTITY_GROUPS_HEADER", "X-Forwarded-Groups")
+    tailnet = TestClient(main.app)
+    body = tailnet.get("/whoami", headers=as_("kilgore@kilgore.trout", "pipelines")).json()
+    assert body["groups"] == ["app:reviewers", "pipelines"]
+    with DbSession(runtime.engine()) as db:
+        sources = sorted((m.group, m.source) for m in db.scalars(select(Membership)))
+    assert sources == [("app:reviewers", "app"), ("pipelines", "idp")]
+
+
+def test_the_idp_cannot_hand_out_app_groups(tailnet: TestClient) -> None:
+    tailnet.post("/groups", json={"name": "reviewers"}, headers=as_("ann@lab.org"))
+    spoofer = as_("mallory@lab.org", "app:reviewers", "/lab")
+    assert tailnet.get("/whoami", headers=spoofer).json()["groups"] == ["/lab"]
+    assert tailnet.get("/groups/reviewers/members", headers=spoofer).status_code == 403
+
+
+def test_superadmins_administer_every_group(tailnet: TestClient, monkeypatch) -> None:
+    tailnet.post("/groups", json={"name": "reviewers"}, headers=as_("ann@lab.org"))
+    root = as_("root@lab.org", "/platform-admins")
+
+    # Every group, whether or not they are in it.
+    assert tailnet.get("/groups", headers=root).json() == [{"name": "app:reviewers", "role": None}]
+    assert tailnet.get("/groups/reviewers/members", headers=root).status_code == 200
+    added = tailnet.post("/groups/reviewers/members", json={"email": "bob@lab.org"}, headers=root)
+    assert added.status_code == 201
+    assert tailnet.delete("/groups/reviewers/members/bob@lab.org", headers=root).status_code == 204
+
+    # APP_ADMIN_GROUP names another IdP group ...
+    monkeypatch.setenv("APP_ADMIN_GROUP", "/lab/admins")
+    assert tailnet.get("/groups/reviewers/members", headers=root).status_code == 403
+    lab_admin = as_("lead@lab.org", "/lab/admins")
+    assert tailnet.get("/groups/reviewers/members", headers=lab_admin).status_code == 200
+
+    # ... but never an app group, which anyone could create and join.
+    monkeypatch.setenv("APP_ADMIN_GROUP", "app:admins")
+    mallory = as_("mallory@lab.org")
+    tailnet.post("/groups", json={"name": "admins"}, headers=mallory)
+    assert tailnet.get("/groups/reviewers/members", headers=mallory).status_code == 403
+
+
+def test_superadmins_by_email_for_sources_without_groups(tailnet: TestClient, monkeypatch) -> None:
+    tailnet.post("/groups", json={"name": "reviewers"}, headers=as_("ann@lab.org"))
+    monkeypatch.setenv("APP_ADMIN_EMAILS", " Boss@Lab.org , other@lab.org")
+    boss = as_("boss@lab.org")  # no groups header: groups are empty
+    assert tailnet.get("/groups", headers=boss).json() == [{"name": "app:reviewers", "role": None}]
+    assert tailnet.get("/groups/reviewers/members", headers=boss).status_code == 200
+    assert tailnet.get("/groups/reviewers/members", headers=as_("bob@lab.org")).status_code == 403
+
+
+def test_app_group_greetings_are_visible_to_members_only(tailnet: TestClient) -> None:
+    ann, bob, carl = as_("ann@lab.org"), as_("bob@lab.org"), as_("carl@lab.org")
+    tailnet.post("/groups", json={"name": "reviewers"}, headers=ann)
+    tailnet.post("/groups/reviewers/members", json={"email": "bob@lab.org"}, headers=ann)
+    tailnet.post("/greetings", json={"name": "hello"})
+
+    for_reviewers = {"name": "for reviewers", "group": "app:reviewers"}
+    assert tailnet.post("/greetings", json=for_reviewers, headers=ann).status_code == 201
+    assert tailnet.post("/greetings", json=for_reviewers, headers=carl).status_code == 403
+
+    def names(headers: dict[str, str] | None = None) -> list[str]:
+        return [g["name"] for g in tailnet.get("/greetings", headers=headers).json()]
+
+    assert names(bob) == ["hello", "for reviewers"]
+    assert names(carl) == ["hello"]
+    assert names() == ["hello"]
+    assert tailnet.get("/", headers=bob).json()["greetings"] == 2
+
+    tailnet.delete("/groups/reviewers/members/bob@lab.org", headers=ann)
+    assert names(bob) == ["hello"]
 
 
 def test_data_reports_the_refs_the_pod_received(monkeypatch: pytest.MonkeyPatch) -> None:

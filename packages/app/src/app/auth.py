@@ -27,7 +27,12 @@ session rows reach every preview -- hashed with prod's secret, which previews
 do not have, they are useless there (and preview-up purges them anyway).
 
 Authorization is by group: ``require_group("pipelines")`` as a dependency, and
-queries that filter on the caller's groups (see main.py's greetings).
+queries that filter on the caller's groups (see main.py's greetings). A
+caller's groups are the identity provider's (re-synced on every login) plus
+the app's own ``app:`` groups (app.groups; the sync never touches those).
+Superadmins -- members of APP_ADMIN_GROUP (default ``/platform-admins``), or
+an email listed in APP_ADMIN_EMAILS for sources that carry no groups --
+administer every app group.
 """
 
 from __future__ import annotations
@@ -45,7 +50,7 @@ from urllib.parse import urlsplit
 
 import httpx2
 from authlib.integrations.starlette_client import OAuth
-from db.models import Membership, Session, User
+from db.models import APP_GROUP_PREFIX, Membership, Session, User
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from joserfc import jwt
@@ -95,10 +100,14 @@ class Settings:
     jwt_issuer: str
     jwt_audience: str
     cookie_secure: bool | None
+    admin_group: str
+    admin_emails: frozenset[str]
 
     @classmethod
     def from_env(cls) -> Settings:
         identity_header = os.environ.get("IDENTITY_HEADER", "")
+        admin_group = os.environ.get("APP_ADMIN_GROUP", "/platform-admins").strip()
+        admin_emails = [e.strip() for e in os.environ.get("APP_ADMIN_EMAILS", "").split(",")]
         return cls(
             auth_mode=os.environ.get("AUTH_MODE", "").strip().lower(),
             proxied=_flag("AUTH_PROXIED") is True,
@@ -119,6 +128,10 @@ class Settings:
             jwt_issuer=os.environ.get("IDENTITY_JWT_ISSUER", "").rstrip("/"),
             jwt_audience=os.environ.get("IDENTITY_JWT_AUDIENCE", ""),
             cookie_secure=_flag("COOKIE_SECURE"),
+            # Anyone logged in can create an app group, so one can never be
+            # the superadmin group: only the IdP vouches for that.
+            admin_group="" if admin_group.startswith(APP_GROUP_PREFIX) else admin_group,
+            admin_emails=frozenset(e.lower() for e in admin_emails if e),
         )
 
     @property
@@ -162,6 +175,14 @@ class Identity:
     def login(self) -> str:
         return self.user.email
 
+    @property
+    def is_superadmin(self) -> bool:
+        """In APP_ADMIN_GROUP, or listed in APP_ADMIN_EMAILS (for sources without groups)."""
+        cfg = settings()
+        return (
+            bool(cfg.admin_group) and cfg.admin_group in self.groups
+        ) or self.user.email.lower() in cfg.admin_emails
+
 
 class AccountConflict(Exception):
     """An email already belongs to a user of another identity-provider subject."""
@@ -181,16 +202,22 @@ def _load(db: DbSession, *where: Any) -> User | None:
 
 
 def _sync_memberships(user: User, groups: list[str]) -> bool:
-    """Make the user's memberships exactly `groups`; True if anything changed."""
-    wanted = set(groups)
+    """Make the user's IdP memberships exactly `groups`; True if anything changed.
+
+    Only rows the IdP gave (source "idp") are replaced: memberships of the
+    app's own groups (source "app") are the app's, and survive every login.
+    An IdP group spelled like an app group is dropped -- the IdP cannot hand
+    out `app:` groups any more than the app can hand out the IdP's.
+    """
+    wanted = {g for g in groups if not g.startswith(APP_GROUP_PREFIX)}
     changed = False
     for m in list(user.memberships):
-        if m.group not in wanted:
+        if m.source == "idp" and m.group not in wanted:
             user.memberships.remove(m)
             changed = True
-    have = {m.group for m in user.memberships}
+    have = {m.group for m in user.memberships if m.source == "idp"}
     for g in sorted(wanted - have):
-        user.memberships.append(Membership(group=g))
+        user.memberships.append(Membership(group=g, source="idp"))
         changed = True
     return changed
 
@@ -207,6 +234,22 @@ def _create_by_email(email: str) -> None:
             other.commit()
         except IntegrityError:
             other.rollback()
+
+
+def user_by_email(db: DbSession, email: str) -> User:
+    """The user with this email, created as a bare row (no subject) if new.
+
+    A bare row is bound to a subject on that person's first OIDC login (see
+    record_oidc_login), so adding someone to a group before they ever logged
+    in works.
+    """
+    user = _load(db, User.email == email)
+    if user is None:
+        _create_by_email(email)
+        db.expire_all()
+        user = _load(db, User.email == email)
+        assert user is not None
+    return user
 
 
 def _user_for_subject(db: DbSession, *, subject: str, email: str) -> tuple[User, bool]:
@@ -292,12 +335,7 @@ def record_asserted_identity(
     alone rather than wiped (a user's groups from an earlier OIDC login, or
     from the app itself, survive a request that arrives through the tailnet).
     """
-    user = _load(db, User.email == email)
-    if user is None:
-        _create_by_email(email)
-        db.expire_all()
-        user = _load(db, User.email == email)
-        assert user is not None
+    user = user_by_email(db, email)
     changed = False
     if name and user.name != name:
         user.name = name

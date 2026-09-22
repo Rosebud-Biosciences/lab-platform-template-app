@@ -12,6 +12,8 @@ Runtime contract with the platform's workloads module:
     SESSION_SECRET ("oidc": the app runs its own login against the platform's
     issuer), or the proxy's verified ID token (AUTH_PROXIED + IDENTITY_JWT_*).
     COOKIE_SECURE marks both of the app's cookies Secure. See app.auth.
+    APP_ADMIN_GROUP / APP_ADMIN_EMAILS name the superadmins, who administer
+    every app-managed group (app.groups).
 """
 
 import os
@@ -28,7 +30,7 @@ from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from app import auth, runtime
+from app import auth, groups, runtime
 from app.auth import CurrentIdentity, Identity, require_user
 
 app = FastAPI(title="lab-platform template app")
@@ -47,6 +49,8 @@ app.add_middleware(
     https_only=auth.settings().cookie_secure is True,
 )
 app.include_router(auth.router)
+# The app's own groups (app:<name>), next to the identity provider's.
+app.include_router(groups.router)
 
 # Apps with built-in notebooks: marimo serves the notebook below as a reactive
 # read-only page (run mode — visitors drive the UI elements, never the code).

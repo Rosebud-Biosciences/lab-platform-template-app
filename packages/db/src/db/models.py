@@ -1,8 +1,13 @@
 from collections.abc import Iterable
 from datetime import datetime
 
-from sqlalchemy import ColumnElement, ForeignKey, UniqueConstraint, func, or_
+from sqlalchemy import CheckConstraint, ColumnElement, ForeignKey, UniqueConstraint, func, or_
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+# App-managed group names carry this prefix everywhere -- stored, compared,
+# shown -- so an app group can never pass for an identity-provider group
+# (those are paths: "/lab/authors"), nor an IdP group for an app one.
+APP_GROUP_PREFIX = "app:"
 
 
 class Base(DeclarativeBase):
@@ -35,28 +40,63 @@ class User(Base):
 
     @property
     def groups(self) -> list[str]:
-        return sorted(m.group for m in self.memberships)
+        """The identity provider's groups plus the app's own (`app:` names)."""
+        return sorted({m.group for m in self.memberships})
+
+
+class Group(Base):
+    """A group the app manages itself, next to the identity provider's.
+
+    Anyone logged in may create one and becomes its admin; its admins (and
+    the platform's superadmins) add and remove members. `name` is stored
+    with APP_GROUP_PREFIX ("app:reviewers"), so it works wherever a group name
+    does -- a greeting's group, `require_group` -- without ever colliding
+    with a group the IdP vouches for.
+    """
+
+    __tablename__ = "groups"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(unique=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    memberships: Mapped[list[Membership]] = relationship(
+        back_populates="app_group", cascade="all, delete-orphan", passive_deletes=True
+    )
 
 
 class Membership(Base):
-    """A user's group, as the identity provider last reported it.
+    """A user's group: as the identity provider last reported it, or as the app granted it.
 
-    Synced from the token's groups claim (or the proxy's groups header) on
-    every login, so the IdP stays the source of truth for WHO is in a group
-    while the app's tables decide WHAT a group may see -- and both the
-    decision and the data it gates branch with the environment.
+    `source` "idp" rows are synced from the token's groups claim (or the
+    proxy's groups header) on every login, so the IdP stays the source of
+    truth for WHO is in its groups while the app's tables decide WHAT a group
+    may see -- and both the decision and the data it gates branch with the
+    environment. `source` "app" rows are memberships of an app-managed
+    `Group` (`group_id`); the sync never touches them.
     """
 
     __tablename__ = "memberships"
-    __table_args__ = (UniqueConstraint("user_id", "group_name", name="uq_memberships_user_group"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "group_name", "source", name="uq_memberships_user_group_source"
+        ),
+        CheckConstraint("source IN ('idp', 'app')", name="ck_memberships_source"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     # "group" is reserved in SQL; the attribute keeps the natural name.
     group: Mapped[str] = mapped_column("group_name", index=True)
     role: Mapped[str] = mapped_column(default="member", server_default="member")
+    source: Mapped[str] = mapped_column(default="idp", server_default="idp")
+    group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("groups.id", ondelete="CASCADE"), index=True
+    )
 
     user: Mapped[User] = relationship(back_populates="memberships")
+    app_group: Mapped[Group | None] = relationship(back_populates="memberships")
 
 
 class Session(Base):

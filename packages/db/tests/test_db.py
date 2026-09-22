@@ -1,8 +1,12 @@
+from pathlib import Path
+
 import pytest
 from db.engine import database_url
 from db.models import Base, Greeting
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, inspect, select
 from sqlalchemy.orm import Session
+
+ALEMBIC_INI = Path(__file__).parents[1] / "alembic.ini"
 
 
 def test_database_url_rewrites_to_psycopg(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -53,3 +57,26 @@ def test_greeting_roundtrip() -> None:
         count = session.scalar(select(func.count()).select_from(Greeting))
 
     assert count == 1
+
+
+def test_migrations_round_trip_on_sqlite(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from alembic import command
+    from alembic.config import Config
+
+    url = f"sqlite:///{tmp_path}/migrated.db"
+    monkeypatch.setenv("DATABASE_URL", url)
+    config = Config(str(ALEMBIC_INI))
+    command.upgrade(config, "head")
+    engine = create_engine(url)
+    tables = inspect(engine)
+    assert {"users", "memberships", "sessions", "groups", "greetings"} <= set(
+        tables.get_table_names()
+    )
+    columns = {c["name"]: c for c in tables.get_columns("memberships")}
+    assert {"source", "group_id"} <= set(columns) and not columns["source"]["nullable"]
+    assert [u["column_names"] for u in tables.get_unique_constraints("memberships")] == [
+        ["user_id", "group_name", "source"]
+    ]
+
+    command.downgrade(config, "base")
+    assert inspect(engine).get_table_names() == ["alembic_version"]
