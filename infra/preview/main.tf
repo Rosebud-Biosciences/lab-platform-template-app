@@ -61,6 +61,7 @@ module "storage" {
   source = "github.com/Rosebud-Biosciences/lab-platform//aws/preview-storage?ref=main"
 
   name_prefix = var.preview_name
+  iam_path    = var.preview_iam_path
   tags        = local.preview_tags
 }
 
@@ -75,8 +76,8 @@ module "neon" {
 }
 
 # The lakehouse analogue of the Neon branch: an empty namespace of the preview's
-# own in the shared S3 Tables bucket, IAM-confined. Tables must be dropped
-# before destroy (see the module README).
+# own in the shared S3 Tables bucket, IAM-confined. Destroy drops the tables
+# the migrations created, then the namespace.
 module "iceberg" {
   count  = local.iceberg_enabled ? 1 : 0
   source = "github.com/Rosebud-Biosciences/lab-platform//aws/iceberg-branches?ref=main"
@@ -84,6 +85,7 @@ module "iceberg" {
   name_prefix      = var.preview_name
   table_bucket_arn = var.iceberg_table_bucket_arn
   read_namespaces  = var.iceberg_read_namespaces
+  iam_path         = var.preview_iam_path
   tags             = local.preview_tags
 }
 
@@ -113,6 +115,7 @@ module "data_access" {
   kms_key_arn = var.data_bucket_kms_key_arn
   prefixes    = var.data_prefixes
   table_arns  = var.iceberg_table_arns
+  iam_path    = var.preview_iam_path
   tags        = local.preview_tags
 }
 
@@ -180,6 +183,10 @@ module "data" {
   name_prefix       = local.name_prefix
   oidc_provider_arn = var.oidc_provider_arn
   region            = var.region
+
+  # The preview role may create roles only here, and only with the boundary.
+  iam_path                 = var.preview_iam_path
+  permissions_boundary_arn = var.preview_permissions_boundary_arn
 
   enable_webapp         = true
   enable_dagster        = local.pipelines

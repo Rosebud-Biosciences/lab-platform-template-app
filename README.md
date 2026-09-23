@@ -28,7 +28,11 @@ flowchart LR
   `pr<N>-`: the PR's images serve the webapp and the Dagster code location,
   against copy-on-write Neon branches of prod data. The PR's own migrations
   run on the PR's own branch — schema experiments never touch prod. The label
-  is the gate, so most PRs deploy nothing.
+  is the gate, so most PRs deploy nothing. It is not a security gate: a PR
+  from a branch of this repository runs its own copy of the workflow, with
+  the preview role. That role's IAM is fenced (its own path, a permissions
+  boundary), but it deploys into the cluster as an admin, so grant write
+  access to people you would give the cluster to (platform docs, "Trust").
   Add `preview:app-only` as well (before `preview`, or push a commit after)
   for a **frontend/API-only PR**: only the app image is built and stamped,
   still on its own database branch, and its `DAGSTER_WEBSERVER_URL` points at
@@ -382,7 +386,9 @@ several; see `shared-platform.auto.tfvars`).
    `uses:` nor a module `source` accepts a variable, so this is a literal.)
 2. Fill in `infra/preview/backend.tf` (state bucket/lock table) and
    `infra/preview/shared-platform.auto.tfvars` (cluster, VPC, Karpenter role,
-   tailnet suffix, Neon parent branches).
+   tailnet suffix, Neon parent branches, and the bootstrap stack's
+   `preview_permissions_boundary_arn`: the preview role creates IAM only
+   under `/preview/` and no role without that boundary).
 3. Repository **variables**: `CI_ROLE_ARN`, `PREVIEW_ROLE_ARN`, `CLUSTER_NAME`,
    `AWS_REGION`, `ECR_REPOSITORY`. `CLUSTER_NAME` is also the switch: until it
    is set, every deployment workflow (deploy, preview-up/down, sweep,

@@ -3,12 +3,16 @@
 # a copy step; auto-loaded by tofu. Replace the placeholders when adopting.
 # preview_name and app_image are passed per-PR by CI as -var flags.
 
-region                       = "us-west-2"
-cluster_name                 = "eks-prod"
-oidc_provider_arn            = "arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-west-2.amazonaws.com/id/XXXXXXXX"
-vpc_name                     = "vpc-prod"
-karpenter_node_iam_role_name = "eks-prod-karpenter-node"
-private_ingress_dns_suffix   = "tailXXXX.ts.net"
+region            = "us-west-2"
+cluster_name      = "eks-prod"
+oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-west-2.amazonaws.com/id/XXXXXXXX"
+
+# From the platform's aws/bootstrap: the preview role creates IAM only under
+# preview_iam_path (default /preview/), and no role without this boundary.
+preview_permissions_boundary_arn = "arn:aws:iam::123456789012:policy/github-actions-preview-deployer-workload-boundary"
+vpc_name                         = "vpc-prod"
+karpenter_node_iam_role_name     = "eks-prod-karpenter-node"
+private_ingress_dns_suffix       = "tailXXXX.ts.net"
 
 # In-cluster URLs of prod's services, for app-only previews (the
 # preview:app-only label -> preview_profile = "app"): the prod workloads
