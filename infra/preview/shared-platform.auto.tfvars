@@ -25,7 +25,11 @@ shared_service_urls = {
 # tofu mode needs only iceberg_table_bucket_arn (for the ephemeral namespace);
 # tether mode also grants the pods access to these prod stores. Leave
 # iceberg_table_bucket_arn empty to skip Iceberg entirely.
-data_bucket_arn          = "arn:aws:s3:::your-data-bucket"
+data_bucket_arn = "arn:aws:s3:::your-data-bucket"
+# tether mode: the bucket's customer-managed KMS key (aws/s3-bucket makes one;
+# `aws s3api get-bucket-encryption` names it). Without it the pods and MLflow
+# can neither read nor write the bucket. Empty only for an SSE-S3 bucket.
+data_bucket_kms_key_arn  = ""
 iceberg_table_bucket_arn = "arn:aws:s3tables:us-west-2:123456789012:bucket/your-table-bucket"
 iceberg_read_namespaces  = ["lake"]
 # tether mode: the prod tables whose branches previews write (one ARN per

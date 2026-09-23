@@ -401,7 +401,8 @@ several; see `shared-platform.auto.tfvars`).
 7. Point the data objects at real stores: edit the locators in
    `packages/dataset/.tether/objects/*.toml` (or `tether remove` / `tether add`
    them from that directory), the Iceberg catalog in
-   `packages/dataset/tether.toml`, and `data_bucket_arn` /
+   `packages/dataset/tether.toml`, and `data_bucket_arn` (with its KMS key,
+   `data_bucket_kms_key_arn`, unless the bucket is SSE-S3) /
    `iceberg_table_bucket_arn` in `shared-platform.auto.tfvars`. Then
    `cd packages/dataset && uv run tether commit -m "Baseline"` on `main` pins
    prod's current state, and `data-pull.yml` keeps it fresh. Consuming a

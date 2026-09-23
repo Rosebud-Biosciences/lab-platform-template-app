@@ -159,7 +159,7 @@ variable "service_dbs" {
 }
 
 variable "data_bucket_kms_key_arn" {
-  description = "tether mode: customer-managed KMS key of data_bucket_arn, if any, so MLflow's role may write artifacts under it (empty for SSE-S3)"
+  description = "tether mode: customer-managed KMS key of data_bucket_arn (aws/s3-bucket creates one). The pods' data access and MLflow's artifact role are granted Decrypt / GenerateDataKey on it; without it neither can touch an SSE-KMS bucket. Empty only for SSE-S3."
   type        = string
   default     = ""
 }

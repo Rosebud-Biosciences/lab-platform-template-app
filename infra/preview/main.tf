@@ -94,15 +94,26 @@ module "iceberg" {
 # it is granted (the module README) and in this repo's README.
 # ------------------------------------------------------------------------------
 
+# An empty key is right for an SSE-S3 bucket, so it cannot be an error; but
+# aws/s3-bucket encrypts with its own KMS key, and without that key the pods
+# and MLflow can neither read nor write a single object.
+check "tether_data_bucket_key" {
+  assert {
+    condition     = !local.tether_forks || var.data_bucket_arn == "" || var.data_bucket_kms_key_arn != ""
+    error_message = "tether mode without data_bucket_kms_key_arn: if ${var.data_bucket_arn} is SSE-KMS encrypted (aws/s3-bucket's default), previews cannot read or write it. Set its key in shared-platform.auto.tfvars; ignore this for an SSE-S3 bucket."
+  }
+}
+
 module "data_access" {
   count  = local.tether_forks ? 1 : 0
   source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-access?ref=main"
 
-  name       = "${var.preview_name}-data-access"
-  bucket_arn = var.data_bucket_arn
-  prefixes   = var.data_prefixes
-  table_arns = var.iceberg_table_arns
-  tags       = local.preview_tags
+  name        = "${var.preview_name}-data-access"
+  bucket_arn  = var.data_bucket_arn
+  kms_key_arn = var.data_bucket_kms_key_arn
+  prefixes    = var.data_prefixes
+  table_arns  = var.iceberg_table_arns
+  tags        = local.preview_tags
 }
 
 # ------------------------------------------------------------------------------
