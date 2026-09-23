@@ -323,6 +323,25 @@ dataset repo, for a submodule. Three consequences follow from that:
   test — set `DATASET_ROOT` for `pytest` too, or keep a `packages/dataset`
   whose `tether.toml` is a thin registration of the shared repo's objects.
 
+**A copy that keeps tracking this template** (a staging or sandbox
+deployment that pulls every template fix verbatim, like
+`lab-platform-sandbox`) hits the one thing in `packages/dataset` that is not
+the template's: *where* each object lives. A manifest holds both what the code
+relies on (the object's key, kind and policy) and its locator (bucket, Neon
+project, table bucket, region), and tether commits them together. Two ways to
+hold real locators in such a copy:
+
+- **Keep the dataset here and mask the locators in the drift check.** The
+  copy compares `packages/` with the template's after rewriting the locator
+  values to a placeholder on both sides, and a script fills in the real ones
+  from its infrastructure outputs. Keys, kinds and policies still have to
+  match. One repo per deployment; this is `lab-platform-sandbox`'s layout
+  (its `.github/template-drift/`).
+- **Give each deployment a dataset repository of its own**, brought in as a
+  submodule (above). The shared code then carries no locators at all, but each
+  deployment has a second repo, and nothing compares its manifests with the
+  template's: an object added here must be added there by hand.
+
 `TETHER_REV` pins reproductions across the boundary the same way in both
 layouts: `TETHER_REV=<dataset commit> uv run python make_report.py` opens
 every object at that commit's pins.
