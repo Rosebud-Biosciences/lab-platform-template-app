@@ -94,6 +94,9 @@ COPY --chown=1000:1000 . /app
 
 # Dagster user-code entry point (see header); harmless in the app image.
 COPY packages/workflows/repo.py /opt/dagster/app/repo.py
+# The chart's DAGSTER_HOME, where run pods keep Dagster's telemetry id and
+# local artifact storage: it must be writable by appuser, not root's.
+RUN install -d -o 1000 -g 1000 /opt/dagster/dagster_home
 
 # Install the workspace packages themselves.
 RUN --mount=type=cache,target=/root/.cache/uv \
