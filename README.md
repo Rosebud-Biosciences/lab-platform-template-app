@@ -447,9 +447,11 @@ several; see `shared-platform.auto.tfvars`).
 
 ## Costs
 
-A preview is one small spot node (scales to zero when idle), Neon branches
+A preview is one small on-demand node for its long-running services (Dagster,
+Argo, MLflow, the Ray head: a spot reclaim would end its Ray cluster or its
+in-flight runs), spot nodes for Ray workers only while they run, Neon branches
 (copy-on-write, ~free until written), an empty S3 bucket, and two tailnet
-ingresses. The expensive things — cluster, NAT, operators — are shared and
+ingresses. Both pools scale to zero when the preview idles or goes away. The expensive things — cluster, NAT, operators — are shared and
 already running. tether mode swaps the bucket for branches inside the prod
 stores (only new chunks cost anything) and the Neon branch for tether's fork;
 the weekly matrix, when enabled, wakes the Neon compute once and writes a few

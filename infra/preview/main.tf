@@ -207,8 +207,11 @@ module "data" {
   tags = local.preview_tags
 }
 
-# Compute axis: one small preview-scoped NodePool (scales to zero when idle)
-# that Dagster's pods and any Ray pods are pinned to.
+# Compute axis: two small preview-scoped NodePools (scale to zero when idle).
+# The long-running services share on-demand nodes -- a spot reclaim of the Ray
+# head ends the Ray cluster and its jobs, and one of Dagster's kills its
+# in-flight runs -- while Ray workers, whose tasks Ray reschedules, run on spot
+# behind a taint that keeps everything else off those nodes.
 module "compute" {
   source = "github.com/Rosebud-Biosciences/lab-platform//aws/compute-adapter?ref=main"
 
@@ -220,16 +223,28 @@ module "compute" {
   vpc_name                     = var.vpc_name
   karpenter_node_iam_role_name = var.karpenter_node_iam_role_name
 
-  # No pipelines, no pool: an app-only preview rides the shared node group.
-  karpenter_node_pools = local.pipelines ? {
-    default = {
+  # No pipelines, no pools: an app-only preview rides the shared node group.
+  # (Filtered for-expressions: the two pools differ in shape, which a
+  # conditional cannot unify.)
+  karpenter_node_pools = { for k, v in {
+    services = {
+      instance_families = ["m7i"]
+      instance_sizes    = ["large", "xlarge"]
+      capacity_types    = ["on-demand"]
+      limits            = { cpu = "4", memory = "16Gi" }
+    }
+    workers = {
       instance_families = ["m7i"]
       instance_sizes    = ["large", "xlarge"]
       capacity_types    = ["spot", "on-demand"]
-      limits            = { cpu = "8", memory = "32Gi" }
+      limits            = { cpu = "4", memory = "16Gi" }
+      taints            = [{ key = "lab-platform.io/interruptible", value = "true", effect = "NoSchedule" }]
     }
-  } : {}
-  node_pool_roles = local.pipelines ? { default = ["dagster", "ray_head", "ray_worker", "mlflow", "argo"] } : {}
+  } : k => v if local.pipelines }
+  node_pool_roles = { for k, v in {
+    services = ["dagster", "argo", "mlflow", "ray_head"]
+    workers  = ["ray_worker"]
+  } : k => v if local.pipelines }
 
   tags = local.preview_tags
 }
