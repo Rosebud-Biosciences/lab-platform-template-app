@@ -21,6 +21,7 @@ after the migrations. Never point them at prod.
 import sys
 
 from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session as DbSession
 
 from db.engine import get_engine
@@ -31,6 +32,10 @@ NOTEBOOK_ROLES = r"nb\_%"
 
 class NotABranch(Exception):
     """The database is not on Neon, so its roles are not the branch's own."""
+
+
+class CannotLock(Exception):
+    """The connecting role may not change one of the notebook roles."""
 
 
 def purge_sessions() -> int:
@@ -65,8 +70,19 @@ def lock_notebook_roles() -> list[str]:
             )
         )
         quote = conn.dialect.identifier_preparer.quote
+        me = conn.scalar(text("SELECT current_user"))
         for role in roles:
-            conn.execute(text(f"ALTER ROLE {quote(role)} NOLOGIN"))
+            try:
+                conn.execute(text(f"ALTER ROLE {quote(role)} NOLOGIN"))
+            except DBAPIError as e:
+                # PostgreSQL 16+: only a role with ADMIN OPTION on another may
+                # change it, which its creator has. The transaction rolls back:
+                # no role is left half-locked.
+                raise CannotLock(
+                    f"{me} may not change {role} ({str(e.orig).strip()}): grant it with"
+                    f" `GRANT {quote(role)} TO {quote(me)} WITH ADMIN OPTION`, or have"
+                    f" {me} create the notebook roles"
+                ) from e
     return roles
 
 
@@ -79,6 +95,9 @@ def main(argv: list[str]) -> int:
             roles = lock_notebook_roles()
         except NotABranch as e:
             print(f"refusing to lock notebook roles: {e}", file=sys.stderr)
+            return 1
+        except CannotLock as e:
+            print(f"no notebook role locked: {e}", file=sys.stderr)
             return 1
         print(f"locked {len(roles)} notebook role(s): {', '.join(roles) or '-'}")
         return 0

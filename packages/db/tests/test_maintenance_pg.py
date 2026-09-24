@@ -77,3 +77,26 @@ def test_locks_the_branchs_notebook_roles(branch) -> None:
         if created:
             with admin.connect() as c:
                 c.execute(text("DROP ROLE neon_superuser"))
+
+
+def test_a_role_it_cannot_change_names_the_fix_and_locks_nothing(branch, capsys) -> None:
+    # A notebook role the connecting owner did not create: on PostgreSQL 16+
+    # it lacks ADMIN OPTION on it, so it may not change it.
+    admin, roles = branch
+    foreign = roles[0].replace("__authors", "__foreign")
+    with admin.connect() as c:
+        created = not c.scalar(text("SELECT 1 FROM pg_roles WHERE rolname = 'neon_superuser'"))
+        if created:
+            c.execute(text("CREATE ROLE neon_superuser NOLOGIN"))
+        c.execute(text(f"CREATE ROLE {foreign} LOGIN"))
+    try:
+        assert maintenance.main(["lock-notebook-roles"]) == 1
+        err = capsys.readouterr().err
+        assert foreign in err and "WITH ADMIN OPTION" in err
+        # All or nothing: the roles it could change are unlocked again.
+        assert all(can_login(admin, role) for role in [*roles, foreign])
+    finally:
+        with admin.connect() as c:
+            c.execute(text(f"DROP ROLE IF EXISTS {foreign}"))
+            if created:
+                c.execute(text("DROP ROLE neon_superuser"))
