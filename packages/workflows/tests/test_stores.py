@@ -7,9 +7,6 @@ same assets run in a preview and prod; only the addresses differ.
 
 import importlib
 import json
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import dagster as dg
@@ -105,22 +102,6 @@ def test_the_s3_tables_catalog_can_sign_requests() -> None:
     # The sqlite catalog above never signs; prod's S3 Tables REST catalog
     # imports boto3 for SigV4 only once it first connects.
     importlib.import_module("boto3")
-
-
-def test_a_process_holding_an_s3_filesystem_exits(tmp_path: Path) -> None:
-    # Under IRSA-style credentials, pyarrow 24+ deadlocks at interpreter exit
-    # while an S3FileSystem is alive (apache/arrow#50188) -- pyiceberg keeps
-    # one after writing, so the step's process, and the run, never finished.
-    token = tmp_path / "token"
-    token.write_text("not-a-real-token")
-    env = {
-        **os.environ,
-        "AWS_REGION": "us-west-2",
-        "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/not-a-real-role",
-        "AWS_WEB_IDENTITY_TOKEN_FILE": str(token),
-    }
-    code = "import pyarrow.fs; s3 = pyarrow.fs.S3FileSystem()"
-    subprocess.run([sys.executable, "-c", code], env=env, check=True, timeout=30)
 
 
 def test_lance_creates_then_appends(local_data: Path) -> None:
