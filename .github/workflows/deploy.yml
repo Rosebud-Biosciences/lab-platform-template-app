@@ -143,10 +143,11 @@ jobs:
       - name: Roll the Dagster user-code deployment
         run: |
           set -euo pipefail
-          # The Dagster chart names user-code deployments dagster-dagster-user-deployments-<name>;
-          # the platform values use a single code location called "user-code".
+          # The Dagster chart labels each code location's deployment
+          # component=user-deployments, deployment=<name>; the platform names
+          # the one built from this repo's image "user-code".
           ns="dagster"
-          deploy="$(kubectl get deploy -n "$ns" -l app.kubernetes.io/component=user-deployments -o name | head -n1)"
+          deploy="$(kubectl get deploy -n "$ns" -l component=user-deployments,deployment=user-code -o name)"
           if [ -n "$deploy" ]; then
             # Run pods take their image from the code server's
             # DAGSTER_CURRENT_IMAGE, which the chart sets to the stack's
@@ -155,6 +156,14 @@ jobs:
             kubectl set env -n "$ns" "$deploy" "DAGSTER_CURRENT_IMAGE=$BASE:workflows-$STAMP"
             kubectl set image -n "$ns" "$deploy" "*=$BASE:workflows-$STAMP"
             kubectl rollout status -n "$ns" "$deploy" --timeout=5m
+            # The chart starts the code server with --fixed-server-id (a
+            # checksum of its Helm values), which kubectl leaves unchanged, so
+            # the webserver and daemon never reload the location -- or the
+            # image they launch runs with -- on their own.
+            for d in $(kubectl get deploy -n "$ns" -l 'component in (dagster-webserver,dagster-daemon)' -o name); do
+              kubectl rollout restart -n "$ns" "$d"
+              kubectl rollout status -n "$ns" "$d" --timeout=5m
+            done
           else
-            echo "No Dagster user-code deployment found; skipping."
+            echo "::warning::No Dagster user-code deployment (component=user-deployments, deployment=user-code) in $ns; its image was not rolled."
           fi
