@@ -83,11 +83,20 @@ def iceberg_table(key: str, schema: Any) -> tuple[Any, Ref]:
     namespace, a laptop). In tether mode the table and its fork branch exist
     before pods start, so a missing branch is reported rather than invented.
     """
+    from pyiceberg.exceptions import NoSuchTableError
+
     r = ref(key)
     catalog = iceberg_catalog()
     namespace = r.location.rsplit(".", 1)[0]
-    catalog.create_namespace_if_not_exists(namespace)
-    table = catalog.create_table_if_not_exists(r.location, schema=schema)
+    # Look before creating: pyiceberg's *_if_not_exists helpers ask to create
+    # first, and S3 Tables refuses (403, not 409) a role that may use the
+    # namespace or table but not create one.
+    if not catalog.namespace_exists(namespace):
+        catalog.create_namespace(namespace)
+    try:
+        table = catalog.load_table(r.location)
+    except NoSuchTableError:
+        table = catalog.create_table(r.location, schema=schema)
     if r.branch != "main" and r.branch not in table.refs():
         raise LookupError(
             f"{key}: branch {r.branch} does not exist on {r.location}; the fork "

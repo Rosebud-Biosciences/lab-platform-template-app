@@ -82,6 +82,22 @@ def test_iceberg_appends_on_the_branch(local_data: Path) -> None:
     assert openers.iceberg_scan(table, r).to_arrow().num_rows == 1
 
 
+def test_iceberg_opens_what_exists_without_creating(
+    local_data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pyiceberg.catalog.sql import SqlCatalog
+
+    created, _ = openers.iceberg_table(ICEBERG_KEY, schema=DAILY_SCHEMA)
+
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise PermissionError("S3 Tables refuses a create the role is not granted")
+
+    monkeypatch.setattr(SqlCatalog, "create_namespace", refuse)
+    monkeypatch.setattr(SqlCatalog, "create_table", refuse)
+    opened, _ = openers.iceberg_table(ICEBERG_KEY, schema=DAILY_SCHEMA)
+    assert opened.name() == created.name()
+
+
 def test_the_s3_tables_catalog_can_sign_requests() -> None:
     # The sqlite catalog above never signs; prod's S3 Tables REST catalog
     # imports boto3 for SigV4 only once it first connects.
