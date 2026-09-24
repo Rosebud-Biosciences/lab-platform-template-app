@@ -394,7 +394,9 @@ one.
 
 Prerequisites (once, from the platform repo): a shared cluster + Tailscale
 operator (`examples/complete`), the bootstrap stack's CI/preview OIDC roles and
-state bucket (`aws/bootstrap`), an ECR repository, and Neon databases for
+state bucket (`aws/bootstrap`, with `preview_state_read_keys =
+["template-app/terraform.tfstate"]`, this stack's backend key: the preview
+role reads no other state), an ECR repository, and Neon databases for
 `app`, `dagster`, `mlflow` and `argo` (one project with four databases, or
 several; see `shared-platform.auto.tfvars`).
 
