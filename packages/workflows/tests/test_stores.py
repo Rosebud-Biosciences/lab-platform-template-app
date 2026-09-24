@@ -5,6 +5,7 @@ laptop run without DATA_REFS does), and the Iceberg catalog is sqlite. The
 same assets run in a preview and prod; only the addresses differ.
 """
 
+import importlib
 import json
 from pathlib import Path
 
@@ -79,6 +80,12 @@ def test_iceberg_appends_on_the_branch(local_data: Path) -> None:
 
     table, r = openers.iceberg_table(ICEBERG_KEY, schema=DAILY_SCHEMA)
     assert openers.iceberg_scan(table, r).to_arrow().num_rows == 1
+
+
+def test_the_s3_tables_catalog_can_sign_requests() -> None:
+    # The sqlite catalog above never signs; prod's S3 Tables REST catalog
+    # imports boto3 for SigV4 only once it first connects.
+    importlib.import_module("boto3")
 
 
 def test_lance_creates_then_appends(local_data: Path) -> None:
