@@ -148,6 +148,11 @@ jobs:
           ns="dagster"
           deploy="$(kubectl get deploy -n "$ns" -l app.kubernetes.io/component=user-deployments -o name | head -n1)"
           if [ -n "$deploy" ]; then
+            # Run pods take their image from the code server's
+            # DAGSTER_CURRENT_IMAGE, which the chart sets to the stack's
+            # :workflows-latest; pulled IfNotPresent, a node that already
+            # holds an older :latest would run that. Name this commit's tag.
+            kubectl set env -n "$ns" "$deploy" "DAGSTER_CURRENT_IMAGE=$BASE:workflows-$STAMP"
             kubectl set image -n "$ns" "$deploy" "*=$BASE:workflows-$STAMP"
             kubectl rollout status -n "$ns" "$deploy" --timeout=5m
           else
