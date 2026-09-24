@@ -1,3 +1,4 @@
+import importlib
 from pathlib import Path
 
 import dagster as dg
@@ -17,6 +18,14 @@ from workflows.definitions import (
 
 def test_definitions_load() -> None:
     dg.Definitions.validate_loadable(defs)
+
+
+@pytest.mark.parametrize(
+    "module",
+    ["dagster_postgres.run_storage", "dagster_postgres.event_log", "dagster_k8s"],
+)
+def test_run_pods_can_build_the_chart_instance(module: str) -> None:
+    importlib.import_module(module)
 
 
 def test_greeting_asset_writes_a_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

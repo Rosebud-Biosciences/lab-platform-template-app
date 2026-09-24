@@ -5,6 +5,13 @@ description = "Hello-world Dagster definitions (the workloads module's user-code
 requires-python = ">=3.14"
 dependencies = [
     "dagster>=1.10",
+    # A run pod (`dagster api execute_run`, this image) first rebuilds the
+    # Dagster instance from the chart's config: Postgres storage and the K8s
+    # run launcher. Without these it exits before it can record anything, and
+    # the run sits in STARTING until run monitoring fails it. The gRPC code
+    # server never builds the instance, so the code location loads either way.
+    "dagster-postgres",
+    "dagster-k8s",
     # db[migrate] (not just db) so the built image can also run
     # `alembic upgrade head` — the migration Job ships in the same artifact.
     "db[migrate]",
