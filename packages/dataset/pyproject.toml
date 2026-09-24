@@ -16,7 +16,11 @@ stores = [
     "zarr>=3",
     # rest-sigv4 (boto3): the S3 Tables REST catalog signs every request.
     "pyiceberg[rest-sigv4]>=0.10",
-    "pyarrow>=15",
+    # <24: from 24.0 a process still holding a pyarrow S3FileSystem at exit
+    # (pyiceberg caches one after writing) deadlocks in the AWS SDK's
+    # shutdown, so a Dagster step never exits and its run never finishes.
+    # https://github.com/apache/arrow/issues/50188 -- lift once a fix ships.
+    "pyarrow>=15,<24",
     "pylance>=1.0",
     "deltalake>=1.0",
     "obstore>=0.11",
