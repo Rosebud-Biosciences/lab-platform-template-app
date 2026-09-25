@@ -358,7 +358,7 @@ variable) selects the provider:
 | Postgres (`db/app` and the services' `db/dagster`, `db/mlflow`, `db/argo`) | copy-on-write Neon branches, tuned compute (sources sharing a project share a branch) | tether fork of the Neon project (one branch serves every database), `--pin record` |
 | Icechunk / Lance / Delta / files | fresh, **empty** copies in the preview's ephemeral bucket | branches inside the **production** stores, forked from the last pinned state |
 | Iceberg | empty namespace of the preview's own | a branch on the prod table |
-| Across pushes to the PR | data persists | re-forked from the baseline each push |
+| Across pushes to the PR | data persists | data persists: the first run's fork is kept (re-label the PR for a fresh one) |
 | Which prod state was tested | not recorded | the pinned dataset commit on `main` (nightly `data-pull`) |
 | Landing preview data on prod | not possible | `tether promote` on merge for Icechunk and Iceberg (fast-forward); prod recomputes the rest |
 | Preview's access to prod data | none | read/write (no delete) on the store prefixes, read/commit on the tables (`aws/data-access`) |
