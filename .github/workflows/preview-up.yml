@@ -193,8 +193,11 @@ jobs:
   # Schema of the PR lands on the PR's branched database — prod never sees it.
   # `tofu output app_database_url` is the tofu-mode Neon branch or the
   # tether-mode fork alike: the stack records whichever it was given.
+  # The explicit condition again: without it a skipped fork-data upstream
+  # (tofu mode) skips this job too, however `up` went.
   migrate:
     needs: up
+    if: ${{ !cancelled() && needs.up.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       PREVIEW_NAME: pr${{ github.event.pull_request.number }}
