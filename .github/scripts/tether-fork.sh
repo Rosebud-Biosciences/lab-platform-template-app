@@ -10,9 +10,11 @@
 # store right now (tether.ws.<dataset>.<bookmark>), forked from the last pinned
 # state on main. On a PR's later pushes the same command runs again: tether
 # RESETS the existing store branches onto those pins, so every revision of the
-# PR is tested against a fresh fork of the baseline. (tofu mode keeps a
-# preview's data across pushes; this is the one behavioural difference, and
-# the README says so.)
+# PR is tested against a fresh fork of the baseline -- `--discard`, because
+# the fork holds the previous revision's writes (and a writable open alone can
+# move a Neon branch), which tether otherwise refuses to throw away. (tofu mode
+# keeps a preview's data across pushes; this is the one behavioural
+# difference, and the README says so.)
 #
 # The bookmark is pushed as a git branch of the repository that holds the
 # dataset (this one, or the dataset repo when DATASET_ROOT is a submodule) so
@@ -28,7 +30,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/tether-env.sh"
 
 bookmark="${1:?usage: tether-fork.sh <bookmark>}"
 
-tether new -b "$bookmark" --eager
+tether new -b "$bookmark" --eager --discard
 dgit push --force --quiet origin "HEAD:refs/heads/$bookmark"
 
 out="${RUNNER_TEMP:-/tmp}/tether-tfvars.json"
