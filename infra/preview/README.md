@@ -64,7 +64,7 @@ tofu apply -var preview_name=pr123 \
   -var image_stamp=pr123-<sha>
 # tether mode by hand: fork first, then feed the stack what the fork printed
 #   uv run tether new -b pr123 --eager
-#   .github/scripts/tether-open-all.sh > infra/preview/external.auto.tfvars.json
+#   .github/scripts/tether-open-all.sh infra/preview/external.auto.tfvars.json
 #   tofu apply -var preview_name=pr123 -var fork_provider=tether ...
 tofu destroy -var preview_name=pr123   # image + tether-mode vars have defaults for destroy
 tofu workspace select default && tofu workspace delete pr123

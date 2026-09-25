@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Print, as one JSON object, everything the preview stack needs from the tether
+# Write, as one JSON object, everything the preview stack needs from the tether
 # bookmark the dataset checkout is on:
 #
 #   database_url         db/app on the fork, with password
@@ -16,8 +16,14 @@
 #
 # That object is what CI hands the reusable preview-up workflow as
 # extra_tfvars_json (base64: a job output containing a masked value is dropped
-# by GitHub) and what the matrix workflow exports for the assets. Passwords are
-# masked in the Actions log before anything else is printed.
+# by GitHub) and what the matrix workflow exports for the assets.
+#
+#   tether-open-all.sh <out.json>
+#
+# The object goes to the file, never stdout: under GitHub Actions stdout
+# carries the `::add-mask::` commands for the fork's passwords, which only mask
+# them if the runner reads them, and which would corrupt the JSON if they
+# shared its stream. Outside Actions nothing is printed.
 #
 # Run from the repo root after `tether new -b <bookmark> --eager` (see
 # tether-env.sh for DATASET_ROOT). Needs uv-synced venv, jq, python3.
@@ -25,6 +31,8 @@
 set -euo pipefail
 # shellcheck source=tether-env.sh
 source "$(dirname "${BASH_SOURCE[0]}")/tether-env.sh"
+
+out="${1:?usage: tether-open-all.sh <out.json>}"
 
 objects="$DATASET_ROOT/.tether/objects"
 keys=$(find "$objects" -name '*.toml' | sed "s#^$objects/##; s#\.toml\$##" | sort)
@@ -43,7 +51,9 @@ while IFS= read -r key; do
       # Writable so the read_write endpoint exists before pods connect.
       url=$(tether open "$key" --writable --with-password)
       password=$(python3 -c 'import sys, urllib.parse as u; print(u.urlsplit(sys.argv[1]).password or "")' "$url")
-      [ -z "$password" ] || echo "::add-mask::$password"
+      if [ -n "$password" ] && [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+        echo "::add-mask::$password"
+      fi
       dbs=$(jq -c --arg k "${key#db/}" --arg v "$url" '. + {($k): $v}' <<<"$dbs")
       ;;
     *)
@@ -53,10 +63,10 @@ while IFS= read -r key; do
   esac
 done <<<"$keys"
 
-python3 - "$dbs" "$refs" <<'EOF'
+python3 - "$dbs" "$refs" "$out" <<'EOF'
 import json, sys, urllib.parse as u
 
-dbs, refs = json.loads(sys.argv[1]), json.loads(sys.argv[2])
+dbs, refs, out = json.loads(sys.argv[1]), json.loads(sys.argv[2]), sys.argv[3]
 if "app" not in dbs:
     sys.exit("tether-open-all: no db/app object in the dataset (the webapp's DATABASE_URL)")
 
@@ -71,9 +81,10 @@ def split(url: str) -> dict:
     }
 
 
-print(json.dumps({
-    "database_url": dbs["app"],
-    "service_dbs": {svc: split(url) for svc, url in sorted(dbs.items()) if svc != "app"},
-    "data_refs": json.dumps(refs, sort_keys=True),
-}))
+with open(out, "w") as f:
+    json.dump({
+        "database_url": dbs["app"],
+        "service_dbs": {svc: split(url) for svc, url in sorted(dbs.items()) if svc != "app"},
+        "data_refs": json.dumps(refs, sort_keys=True),
+    }, f)
 EOF

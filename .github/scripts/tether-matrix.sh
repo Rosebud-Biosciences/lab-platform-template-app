@@ -59,14 +59,23 @@ else
 fi
 
 # 2. Addresses for the assets: the fork's database and DATA_REFS, plus the
-#    Iceberg catalog tether itself uses (tether.toml), as JSON for pyiceberg.
-opened=$(.github/scripts/tether-open-all.sh)
+#    Iceberg catalog tether itself uses, as JSON for pyiceberg: tether.toml's
+#    type and warehouse over the endpoint and signing tether-env.sh exported
+#    for the catalog name the manifests use (the app's openers read neither).
+opened_file="${RUNNER_TEMP:-/tmp}/matrix-opened.json"
+.github/scripts/tether-open-all.sh "$opened_file"
+opened=$(cat "$opened_file")
 export DATABASE_URL
 DATABASE_URL=$(jq -r '.database_url' <<<"$opened")
 export DATA_REFS
 DATA_REFS=$(jq -r '.data_refs' <<<"$opened")
 export ICEBERG_CATALOG
-ICEBERG_CATALOG=$(uv run --frozen python -c 'import json, sys, tomllib; print(json.dumps(tomllib.load(open(sys.argv[1], "rb"))["backends"]["iceberg"]["catalog"]))' "$DATASET_ROOT/tether.toml")
+ICEBERG_CATALOG=$(uv run --frozen python -c '
+import json, sys, tomllib
+from pyiceberg.utils.config import Config
+committed = tomllib.load(open(sys.argv[1], "rb"))["backends"]["iceberg"]["catalog"]
+print(json.dumps({**(Config().get_catalog_config("s3tables") or {}), **committed}))
+' "$DATASET_ROOT/tether.toml")
 note "open: addresses for $(jq -r 'fromjson | keys | join(", ")' <<<"$DATA_REFS")"
 
 # 3. Write through the app's own assets, one backend at a time.
