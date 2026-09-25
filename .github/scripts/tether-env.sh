@@ -42,7 +42,8 @@ unset _tether_region
 tether() { (cd "$DATASET_ROOT" && "$TETHER_BIN" "$@"); }
 dgit() { git -C "$DATASET_ROOT" "$@"; }
 
-# An identity for the commits CI makes (pull, the merged-PR pin). Tolerant so
-# the helper also loads in a jj-only checkout, where there is no .git to configure.
+# An identity for the commits CI makes (data-pull's manifest commit). Tolerant
+# so the helper also loads in a jj-only checkout, where there is no .git to
+# configure.
 dgit config user.name "tether-bot" 2>/dev/null || true
 dgit config user.email "tether-bot@users.noreply.github.com" 2>/dev/null || true

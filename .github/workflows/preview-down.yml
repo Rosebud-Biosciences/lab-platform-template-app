@@ -7,11 +7,10 @@ name: Preview Down
 # closing a never-labeled PR is fine.
 #
 # tether mode (FORK_PROVIDER=tether) adds data-down AFTER the destroy, once the
-# pods have stopped writing: a merged PR's forks are fast-forwarded onto prod
-# where the store allows it (PROMOTABLE_KEYS), then the bookmark's branches are
-# released in every store; an unmerged or parked PR's forks are simply
-# released, and any store the PR itself created is deleted. See
-# .github/scripts/tether-down.sh for the order and the reasons.
+# pods have stopped writing: every fork the preview wrote is discarded, merged
+# or not, and any store the PR itself created is deleted -- prod recomputes
+# with the merged code. See .github/scripts/tether-down.sh for why, the order
+# and the reasons.
 
 on:
   pull_request:
@@ -54,12 +53,8 @@ jobs:
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       AWS_REGION: ${{ vars.AWS_REGION }}
-      # Stores `promote` may fast-forward: Icechunk and Iceberg. Lance cannot
-      # move a branch head and Neon cannot promote; Delta and file objects are
-      # never forked.
-      PROMOTABLE_KEYS: zarr/greetings lake/greetings_daily
-      # Prefix under which a PR-created store may be deleted on abandon; unset
-      # skips that step.
+      # Prefix under which a PR-created store may be deleted; unset skips that
+      # step.
       DATA_ROOT_URI: ${{ vars.DATA_ROOT_URI }}
       DATASET_ROOT: ${{ vars.DATASET_ROOT || 'packages/dataset' }}
     steps:
@@ -68,6 +63,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0 # tether gc keeps the pins any commit's manifests reference
           submodules: true # a dataset consumed from its own repo rides in as a submodule
 
       - uses: aws-actions/configure-aws-credentials@v6
@@ -82,4 +78,4 @@ jobs:
 
       - run: uv sync --frozen
 
-      - run: .github/scripts/tether-down.sh "pr${{ github.event.pull_request.number }}" "${{ github.event.pull_request.merged }}"
+      - run: .github/scripts/tether-down.sh "pr${{ github.event.pull_request.number }}"

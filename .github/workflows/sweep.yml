@@ -3,7 +3,7 @@ name: Preview Sweep
 # Nightly belt-and-braces: destroy any pr* preview workspaces whose PR is no
 # longer open (missed teardowns, force-closed PRs, flaky runners). In tether
 # mode the same sweep then retires any pr* tether bookmark whose PR is closed,
-# with the same land-or-release rules as preview-down.yml's data-down.
+# discarding its forks as preview-down.yml's data-down does.
 
 # Inert until adopted: every job here is gated on the CLUSTER_NAME repository
 # variable, which an adopter sets anyway (README "Adopt this template"). In the
@@ -51,13 +51,13 @@ jobs:
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       AWS_REGION: ${{ vars.AWS_REGION }}
-      PROMOTABLE_KEYS: zarr/greetings lake/greetings_daily
       DATA_ROOT_URI: ${{ vars.DATA_ROOT_URI }}
       GH_TOKEN: ${{ github.token }}
       DATASET_ROOT: ${{ vars.DATASET_ROOT || 'packages/dataset' }}
     steps:
       - uses: actions/checkout@v7
         with:
+          fetch-depth: 0 # tether gc keeps the pins any commit's manifests reference
           submodules: true # a dataset consumed from its own repo rides in as a submodule
 
       - uses: aws-actions/configure-aws-credentials@v6
@@ -79,12 +79,11 @@ jobs:
           for ref in $(git -C "$DATASET_ROOT" ls-remote --heads origin 'pr[0-9]*' | awk '{print $2}'); do
             bookmark="${ref#refs/heads/}"
             number="${bookmark#pr}"
-            state=$(gh pr view "$number" --json state,mergedAt --jq '[.state, (.mergedAt != null)] | @tsv' 2>/dev/null || echo "UNKNOWN	false")
-            IFS=$'\t' read -r pr_state merged <<<"$state"
+            pr_state=$(gh pr view "$number" --json state --jq .state 2>/dev/null || echo UNKNOWN)
             case "$pr_state" in
               OPEN) echo "$bookmark: PR open, keeping its forks" ;;
               UNKNOWN) echo "::warning::$bookmark: could not look up PR #$number; keeping its forks" ;;
-              *) echo "$bookmark: PR $pr_state (merged=$merged), retiring"
-                 .github/scripts/tether-down.sh "$bookmark" "$merged" ;;
+              *) echo "$bookmark: PR $pr_state, retiring"
+                 .github/scripts/tether-down.sh "$bookmark" ;;
             esac
           done

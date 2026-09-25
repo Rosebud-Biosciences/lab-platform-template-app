@@ -360,7 +360,7 @@ variable) selects the provider:
 | Iceberg | empty namespace of the preview's own | a branch on the prod table |
 | Across pushes to the PR | data persists | data persists: the first run's fork is kept (re-label the PR for a fresh one) |
 | Which prod state was tested | not recorded | the pinned dataset commit on `main` (nightly `data-pull`) |
-| Landing preview data on prod | not possible | `tether promote` on merge for Icechunk and Iceberg (fast-forward); prod recomputes the rest |
+| Landing preview data on prod | never: prod recomputes with the merged code | never: every fork is discarded on merge or close, and prod recomputes with the merged code |
 | Preview's access to prod data | none | read/write (no delete) on the store prefixes, read/commit on the tables (`aws/data-access`) |
 | Dependencies | none | `tether-vcs` (alpha; its Neon and Iceberg backends are `experimental`) |
 
@@ -380,7 +380,7 @@ flowchart LR
   Up --> Pods[pods: DATABASE_URL + DATA_REFS on the fork; Dagster/MLflow/Argo on their forked databases]
   Pods --> Migrate[migrate: alembic on the fork]
   Close[PR closed / unlabeled] --> Destroy[preview-down: destroy]
-  Destroy --> DataDown[data-down: merged? promote zarr+lake, then release; else release + delete PR-created stores]
+  Destroy --> DataDown[data-down: discard every fork and the stores the PR created, merged or not]
   Nightly[data-pull nightly] --> Main[main: tether pull + verify]
 ```
 

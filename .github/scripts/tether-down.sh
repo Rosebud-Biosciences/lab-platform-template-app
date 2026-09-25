@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 #
-# Retire a preview's tether bookmark: land its data if the PR merged, then
-# release its branches in every store. Used by preview-down.yml (one PR) and
+# Retire a preview's tether bookmark: discard everything its preview wrote,
+# whether the PR merged or not. Used by preview-down.yml (one PR) and
 # sweep.yml (every closed PR that still has a bookmark).
 #
-# Usage: tether-down.sh <bookmark> <merged: true|false>
+# Nothing a preview writes reaches prod; prod's own runs recompute with the
+# merged code. Landing a fork instead is unsound three ways: only some
+# backends can fast-forward (Icechunk and Iceberg; not Lance, Delta or Neon),
+# so a merge would land some objects and drop others; the fork is kept across
+# pushes, so it holds output of revisions that never merged; and with several
+# previews open, only the first to merge could fast-forward at all. So every
+# fork goes, merged or not.
+#
+# Usage: tether-down.sh <bookmark>
 #
 # Order matters and each step says why:
 #   1. Fetch every pr* bookmark branch. tether reads bookmarks from the local
@@ -12,56 +20,46 @@
 #      every bookmark it cannot see -- so a checkout that knows only about this
 #      PR would prune every open preview. Fetching them all first makes gc
 #      precise.
-#   2. Merged: join the bookmark, pin its branch heads (`commit`), and
-#      fast-forward the promotable stores (`promote KEY...`). Neon cannot
-#      promote (the schema reaches prod through deploy.yml's alembic step; the
-#      rows were test data), so promotion is by key. A refused fast-forward
-#      means prod moved since the fork: the honest outcome is a recompute by
-#      prod's Dagster with the merged code, and the branches are KEPT so nothing
-#      is lost until someone decides.
-#   3. Always -- merged or not, landed or not: delete the preview's MLflow
-#      artifact prefix, DATA_ROOT_URI/mlflow/<bookmark>/. MLflow's runs are
-#      service state on the forked db/mlflow, which Neon cannot promote, so
-#      the artifacts those runs wrote are test output in every outcome; a
-#      failed landing in step 2 keeps branches that might still land, never
-#      these. (Artifacts are not a tether object: tether's object-store
-#      backend has no fork, and the stack derives the prefix per preview --
-#      infra/preview/main.tf.)
-#   4. Drop the bookmark and let gc judge its branches (skipped when step 2
-#      kept them). --force-prune is the only way unpinned writes go, which for
-#      an abandoned preview is the intent. The Neon fork goes through Neon's
-#      API instead (drop_neon_fork below): tether 0.1.0b4's gc cannot delete a
-#      branch that is its own storage.
-#   5. Not merged: delete stores the PR itself created (objects in its
-#      manifests that main's do not have), under DATA_ROOT_URI only. This is the
-#      outside-in version of a tether feature in progress; once tether records
-#      store creation in its op log, `gc` does this itself.
+#   2. Delete the preview's MLflow artifact prefix, DATA_ROOT_URI/mlflow/
+#      <bookmark>/. MLflow's runs are service state on the forked db/mlflow,
+#      and the artifacts those runs wrote go with them. (Artifacts are not a
+#      tether object: tether's object-store backend has no fork, and the stack
+#      derives the prefix per preview -- infra/preview/main.tf.)
+#   3. Drop the bookmark and let gc release its branches. --force-prune is
+#      the only way unpinned writes go, which is the intent. The Neon fork goes
+#      through Neon's API instead (drop_neon_fork below): tether 0.1.0b4's gc
+#      cannot delete a branch that is its own storage.
+#   4. Delete stores the PR itself created (objects in its manifests that main
+#      did not have where the PR branched off), under DATA_ROOT_URI only. Such
+#      an object has nothing to fork from, so the preview wrote it at its real
+#      location. If the PR merged, main's manifests now name it and prod's
+#      first run creates it afresh. This is the outside-in version of a tether
+#      feature in progress; once tether records store creation in its op log,
+#      `gc` does this itself.
 #
 # All git and tether commands act on the repository holding the dataset (see
 # tether-env.sh): this one for packages/dataset, the dataset repo when
-# DATASET_ROOT is a submodule.
+# DATASET_ROOT is a submodule. Both need its full history (gc keeps the pins
+# any manifest in it references), so callers check out with fetch-depth 0.
 #
-# Env: PROMOTABLE_KEYS (space-separated keys `promote` may fast-forward),
-#      DATA_ROOT_URI (s3://bucket/prefix/ under which the MLflow artifacts and
-#      PR-created stores may be deleted; unset skips steps 3 and 5),
+# Env: DATA_ROOT_URI (s3://bucket/prefix/ under which the MLflow artifacts and
+#      PR-created stores may be deleted; unset skips steps 2 and 4),
 #      NEON_API_KEY, AWS credentials.
 
 set -euo pipefail
 # shellcheck source=tether-env.sh
 source "$(dirname "${BASH_SOURCE[0]}")/tether-env.sh"
 
-bookmark="${1:?usage: tether-down.sh <bookmark> <merged>}"
-merged="${2:?usage: tether-down.sh <bookmark> <merged>}"
-promotable="${PROMOTABLE_KEYS:-}"
+bookmark="${1:?usage: tether-down.sh <bookmark>}"
 
 # tether 0.1.0b4's gc plans a BRANCH_IS_STORAGE branch (Neon) without reading
 # its head, then refuses the head it can read when it acts ("the plan could
 # not read ... but it reads now"), so it can never delete the Neon fork, and
 # fails the whole gc trying. This deletes the fork (and any `.<n>` sibling a
 # reset left) in every Neon project the manifests name. A branch that still
-# has branches hanging off it -- the pins a merge's `tether commit` took,
-# which gc releases -- is left for the call after gc (`drop_neon_fork after-gc`),
-# which warns if one still does.
+# has branches hanging off it (pins someone took on the preview's branch,
+# which gc releases) is left for the call after gc (`drop_neon_fork
+# after-gc`), which warns if one still does.
 neon_api() {
   curl -fsS -H "Authorization: Bearer $NEON_API_KEY" -H "Accept: application/json" "$@"
 }
@@ -107,26 +105,9 @@ if ! dgit show-ref --verify --quiet "refs/heads/$bookmark"; then
   echo "tether-down: no bookmark $bookmark on origin; nothing forked (or already retired)."
   exit 0
 fi
+head=$(dgit rev-parse "refs/heads/$bookmark")
 
-landed=true
-if [ "$merged" = "true" ]; then
-  landed=false
-  current=$(dgit rev-parse --abbrev-ref HEAD)
-  dgit checkout --quiet "$bookmark"
-  # shellcheck disable=SC2086 # $promotable is a list of keys
-  if tether new "$bookmark" &&
-    tether commit -m "data written by $bookmark" --force &&
-    tether promote $promotable --strategy ff; then
-    landed=true
-    echo "tether-down: landed $bookmark on main for: $promotable"
-    echo "::notice::$bookmark's data landed on prod ($promotable). Manifests on main catch up with the nightly data-pull."
-  else
-    echo "::warning::$bookmark merged but its data could not be fast-forwarded (prod moved, or a store refused). Branches KEPT. Either let prod recompute with the merged code and retire the bookmark by hand -- tether abandon / jj bookmark delete $bookmark / tether gc --prune-bookmarks --force-prune -- or land it from a checkout: tether new $bookmark && tether promote <keys>."
-  fi
-  dgit checkout --quiet "$current"
-fi
-
-# Step 3: the preview's MLflow artifacts, before any exit (see the header).
+# Step 2: the preview's MLflow artifacts.
 if [ -n "${DATA_ROOT_URI:-}" ]; then
   artifacts="${DATA_ROOT_URI%/}/mlflow/$bookmark/"
   if aws s3 ls "$artifacts" >/dev/null 2>&1; then
@@ -135,30 +116,39 @@ if [ -n "${DATA_ROOT_URI:-}" ]; then
   fi
 fi
 
-if [ "$landed" != "true" ]; then
-  exit 0
-fi
-
+# Step 3: the forks.
 dgit branch -D "$bookmark" >/dev/null
 drop_neon_fork
 tether gc --prune-bookmarks --force-prune --no-dry-run
 drop_neon_fork after-gc
 dgit push --quiet origin --delete "$bookmark" || echo "tether-down: bookmark branch already gone from origin"
 
-if [ "$merged" = "true" ] || [ -z "${DATA_ROOT_URI:-}" ]; then
+[ -n "${DATA_ROOT_URI:-}" ] || exit 0
+
+# Step 4: stores this PR created. Where the PR branched off: the newest commit
+# on main's first-parent line that the bookmark contains -- however the PR
+# merged (merge commit, squash, rebase), or if it never did, its own commits
+# are not on that line. Its manifests versus the bookmark's; kinds whose store
+# is a prefix tether/the job created; URIs under DATA_ROOT_URI only. Paths are
+# relative to the dataset root (git resolves pathspecs and `./` object paths
+# against the cwd), so this reads the same in both layouts.
+base=""
+while IFS= read -r commit; do
+  if dgit merge-base --is-ancestor "$commit" "$head"; then
+    base=$commit
+    break
+  fi
+done < <(dgit rev-list --first-parent refs/remotes/origin/main)
+if [ -z "$base" ]; then
+  echo "::warning::tether-down: $bookmark shares no history with main; leaving any stores it created."
   exit 0
 fi
-
-# Step 5: stores this PR created. Its manifests versus main's, kinds whose
-# store is a prefix tether/the job created, URIs under DATA_ROOT_URI only.
-# Paths are relative to the dataset root (git resolves pathspecs and `./`
-# object paths against the cwd), so this reads the same in both layouts.
 comm -13 \
-  <(dgit ls-tree -r --name-only origin/main -- .tether/objects | sort) \
-  <(dgit ls-tree -r --name-only "origin/$bookmark" -- .tether/objects 2>/dev/null | sort) |
+  <(dgit ls-tree -r --name-only "$base" -- .tether/objects | sort) \
+  <(dgit ls-tree -r --name-only "$head" -- .tether/objects | sort) |
   while IFS= read -r manifest; do
     [ -n "$manifest" ] || continue
-    toml=$(dgit show "origin/$bookmark:./$manifest" 2>/dev/null || true)
+    toml=$(dgit show "$head:./$manifest")
     kind=$(sed -n 's/^kind *= *"\([^"]*\)".*/\1/p' <<<"$toml")
     uri=$(sed -n 's/^uri *= *"\([^"]*\)".*/\1/p' <<<"$toml")
     case "$kind" in icechunk | lance | delta) ;; *) continue ;; esac
