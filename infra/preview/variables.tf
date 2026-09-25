@@ -125,8 +125,9 @@ variable "fork_provider" {
     Who provides the preview's data. "tofu": this stack stamps isolated, empty
     copies (Neon branch, ephemeral bucket, Iceberg namespace) and builds
     DATA_REFS from them. "tether": CI forks the production stores with tether
-    first and passes database_url / service_dbs / data_refs in; this stack only
-    grants the pods access to those stores. CI sets it from the FORK_PROVIDER
+    first and passes fork_dbs / data_refs in; this stack reads the fork's
+    database passwords from Neon and grants the pods access to those stores.
+    CI sets it from the FORK_PROVIDER
     repository variable.
   EOT
   type        = string
@@ -142,31 +143,25 @@ variable "fork_provider" {
 # job through the reusable workflow's extra_tfvars_json secret). Defaulted so a
 # destroy or sweep needs none of them.
 
-variable "database_url" {
-  description = "tether mode: SQLAlchemy URL of the app database on the preview's fork (tether open db/app --with-password)"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "service_dbs" {
+variable "fork_dbs" {
   description = <<-EOT
-    tether mode: the service databases on the preview's fork, keyed by service
-    (dagster, mlflow, argo -- one per db/<svc> object in the dataset), each
-    split into the connection fields the workloads module takes. CI builds it
-    from `tether open db/<svc> --writable --with-password`
-    (.github/scripts/tether-open-all.sh). A service missing here is stamped
-    without a database (Argo: no archive) or, for Dagster and MLflow, fails
-    the plan -- they need one.
+    tether mode: every database on the preview's Neon fork, keyed by the name
+    after db/ -- "app" (the webapp's DATABASE_URL), then one per db/<svc>
+    object (dagster, mlflow, argo) -- with where it lives but no password: this
+    stack reads each role's from Neon, because GitHub drops a job output that
+    holds a masked value, so CI cannot hand one over. Built by
+    .github/scripts/tether-open-all.sh. A service missing here is stamped
+    without a database (Argo: no archive) or, for Dagster and MLflow, fails the
+    plan -- they need one.
   EOT
   type = map(object({
-    host     = string
-    dbname   = string
-    user     = string
-    password = string
+    project_id = string
+    branch_id  = string
+    host       = string
+    dbname     = string
+    user       = string
   }))
-  default   = {}
-  sensitive = true
+  default = {}
 }
 
 variable "data_bucket_kms_key_arn" {

@@ -23,10 +23,11 @@ What a preview contains:
   alembic migrations run against the `app` branch), an ephemeral bucket for
   every other store, an ephemeral Iceberg namespace when
   `iceberg_table_bucket_arn` is set — all destroyed with the stack. `tether`:
-  CI forks the production stores first and passes `database_url` /
-  `service_dbs` / `data_refs` in (`external.auto.tfvars.json` via the reusable
-  workflow's `extra_tfvars_json`); this stack then only grants the pods access
-  to those stores (`data-access`). Either way the pods get `DATABASE_URL` +
+  CI forks the production stores first and passes `fork_dbs` / `data_refs` in
+  (`external.auto.tfvars.json` via the reusable workflow's
+  `extra_tfvars_json`) -- where each fork database lives, but no password,
+  since GitHub drops a job output holding one; this stack reads the passwords
+  from Neon and grants the pods access to those stores (`data-access`). Either way the pods get `DATABASE_URL` +
   `DATA_REFS` (`data.tf`) and each service its own database.
 - **A small Karpenter NodePool** — scales to zero when idle.
 - **Auth** — `auth = { mode = "headers" }`: the tailnet's Ingress proxy names

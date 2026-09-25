@@ -11,9 +11,10 @@
 #   tofu    (default) this stack stamps isolated, empty copies: a copy-on-write
 #           Neon branch, an ephemeral bucket, an ephemeral Iceberg namespace.
 #   tether  CI's fork-data job forks the PRODUCTION stores with tether and hands
-#           this stack the results (external.auto.tfvars.json: database_url,
-#           service_dbs, data_refs); this stack grants the pods access to the
-#           prod stores (data-access) and creates no data resources itself.
+#           this stack the results (external.auto.tfvars.json: fork_dbs,
+#           data_refs -- no passwords, which this stack reads from Neon);
+#           this stack grants the pods access to the prod stores
+#           (data-access) and creates no data resources itself.
 # Both end in the same pod contract -- DATABASE_URL + DATA_REFS, plus each
 # service's own database -- so the app never learns which. The services'
 # STATE branches too: Dagster's run storage, MLflow's tracking store and
@@ -125,15 +126,36 @@ module "data_access" {
 # empty list.
 # ------------------------------------------------------------------------------
 
+# tether mode: the fork's role passwords, read here rather than carried in from
+# CI (var.fork_dbs says why).
+data "neon_branch_role_password" "fork" {
+  for_each = local.tether_forks ? var.fork_dbs : {}
+
+  project_id = each.value.project_id
+  branch_id  = each.value.branch_id
+  role_name  = each.value.user
+}
+
 locals {
-  database_url = local.tether_forks ? var.database_url : (
-    local.neon_enabled ? one(module.neon[*].postgres_urls["app"]) : ""
+  # Every database's connection, keyed like the Neon module's (app, dagster,
+  # ...), whichever provider forked it.
+  db_connections = local.tether_forks ? {
+    for k, d in var.fork_dbs : k => {
+      host     = d.host
+      dbname   = d.dbname
+      user     = d.user
+      password = data.neon_branch_role_password.fork[k].password
+    }
+  } : (local.neon_enabled ? one(module.neon[*].connections) : {})
+
+  app_db = lookup(local.db_connections, "app", null)
+  database_url = local.app_db == null ? "" : (
+    "postgresql+psycopg://${local.app_db.user}:${urlencode(local.app_db.password)}@${local.app_db.host}/${local.app_db.dbname}?sslmode=require"
   )
 
-  # The service databases, keyed by service, whichever provider forked them:
-  # tether's service_dbs, or the Neon module's connections minus "app".
-  service_dbs = local.tether_forks ? var.service_dbs : {
-    for k, c in(local.neon_enabled ? one(module.neon[*].connections) : {}) :
+  # The service databases: every connection but the app's.
+  service_dbs = {
+    for k, c in local.db_connections :
     k => { host = c.host, dbname = c.dbname, user = c.user, password = c.password } if k != "app"
   }
   no_db      = { host = "", dbname = "", user = "", password = "" }

@@ -35,9 +35,9 @@ dgit push --force --quiet origin "HEAD:refs/heads/$bookmark"
 
 out="${RUNNER_TEMP:-/tmp}/tether-tfvars.json"
 .github/scripts/tether-open-all.sh "$out"
-jq -e 'type == "object" and has("database_url") and has("data_refs")' "$out" >/dev/null || {
+jq -e 'type == "object" and (.fork_dbs | has("app")) and has("data_refs")' "$out" >/dev/null || {
   echo "tether-fork: tether-open-all.sh wrote no usable object to $out" >&2
   exit 1
 }
-echo "forked $(jq -r '.data_refs | fromjson | keys | join(", ")' "$out") plus db/app and $(jq -r '.service_dbs | keys | map("db/" + .) | join(", ")' "$out") onto $bookmark"
+echo "forked $(jq -r '.data_refs | fromjson | keys | join(", ")' "$out") plus $(jq -r '.fork_dbs | keys | map("db/" + .) | join(", ")' "$out") onto $bookmark"
 echo "tfvars_b64=$(base64 < "$out" | tr -d '\n')" >> "${GITHUB_OUTPUT:-/dev/stdout}"

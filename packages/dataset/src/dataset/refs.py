@@ -37,7 +37,7 @@ from pathlib import Path
 # The Postgres objects travel as connection settings, not in DATA_REFS: db/app
 # as the webapp's DATABASE_URL, the service databases (Dagster's run storage,
 # MLflow's tracking store, Argo's workflow archive) as the preview stack's
-# service_dbs. They are tether objects all the same, so a preview forks the
+# service databases. They are tether objects all the same, so a preview forks the
 # services' STATE along with the data -- prod's run history, experiments and
 # archived workflows appear on the preview's branch, and nothing written there
 # reaches prod.

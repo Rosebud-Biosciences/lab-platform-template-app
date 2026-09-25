@@ -277,7 +277,7 @@ same contract, so nothing in `packages/` knows which is in use:
 - the **services' own databases** — Dagster's run storage, MLflow's tracking
   store, Argo's workflow archive (`db/dagster`, `db/mlflow`, `db/argo`) — each
   a branch of prod's, handed to the stamped service by the preview stack
-  (`service_dbs` in tether mode, `neon_branch_sources` in tofu mode). Service
+  (`fork_dbs` in tether mode, `neon_branch_sources` in tofu mode). Service
   state is data too: a full preview shows prod's run history, experiments and
   archived workflows and writes to none of them. MLflow's artifacts are the
   one non-branchable piece (write-once blobs; tether's object-store backend
@@ -373,7 +373,7 @@ The tether loop, end to end (tether mode):
 ```mermaid
 flowchart LR
   Label[PR labeled preview] --> Fork[fork-data: tether new -b prN --eager]
-  Fork --> Up[preview-up: apply with database_url + service_dbs + data_refs]
+  Fork --> Up[preview-up: apply with fork_dbs + data_refs; passwords read from Neon]
   Up --> Pods[pods: DATABASE_URL + DATA_REFS on the fork; Dagster/MLflow/Argo on their forked databases]
   Pods --> Migrate[migrate: alembic on the fork]
   Close[PR closed / unlabeled] --> Destroy[preview-down: destroy]

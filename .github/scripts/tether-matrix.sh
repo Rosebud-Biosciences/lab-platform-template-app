@@ -65,8 +65,14 @@ fi
 opened_file="${RUNNER_TEMP:-/tmp}/matrix-opened.json"
 .github/scripts/tether-open-all.sh "$opened_file"
 opened=$(cat "$opened_file")
+# The assets run in this job, so the app's URL (password and all) never has to
+# leave it: masked before anything could print it.
 export DATABASE_URL
-DATABASE_URL=$(jq -r '.database_url' <<<"$opened")
+DATABASE_URL=$(tether open db/app --writable --with-password)
+db_password=$(python3 -c 'import sys, urllib.parse as u; print(u.urlsplit(sys.argv[1]).password or "")' "$DATABASE_URL")
+if [ -n "$db_password" ] && [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  echo "::add-mask::$db_password"
+fi
 export DATA_REFS
 DATA_REFS=$(jq -r '.data_refs' <<<"$opened")
 export ICEBERG_CATALOG
