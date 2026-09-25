@@ -38,8 +38,9 @@ from pathlib import Path
 # as the webapp's DATABASE_URL, the service databases (Dagster's run storage,
 # MLflow's tracking store, Argo's workflow archive) as the preview stack's
 # service databases. They are tether objects all the same, so a preview forks the
-# services' STATE along with the data -- prod's run history, experiments and
-# archived workflows appear on the preview's branch, and nothing written there
+# services' STATE along with the data -- prod's Dagster runs and MLflow
+# experiments appear on the preview (prod's archived workflows are on its branch
+# too, but Argo lists only the preview's namespace), and nothing written there
 # reaches prod.
 NEON_KEYS = ("db/app", "db/dagster", "db/mlflow", "db/argo")
 SERVICE_DB_KEYS = tuple(k for k in NEON_KEYS if k != "db/app")

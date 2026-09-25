@@ -278,12 +278,15 @@ same contract, so nothing in `packages/` knows which is in use:
   store, Argo's workflow archive (`db/dagster`, `db/mlflow`, `db/argo`) — each
   a branch of prod's, handed to the stamped service by the preview stack
   (`fork_dbs` in tether mode, `neon_branch_sources` in tofu mode). Service
-  state is data too: a full preview shows prod's run history, experiments and
-  archived workflows and writes to none of them. MLflow's artifacts are the
-  one non-branchable piece (write-once blobs; tether's object-store backend
-  has no fork): they go to a per-preview prefix (`<ephemeral bucket>/mlflow`
-  or `<data bucket>/tether/mlflow/pr<N>/`) that `tether-down.sh` deletes when
-  the preview retires.
+  state is data too: a full preview shows prod's Dagster run history and MLflow
+  experiments and writes to none of them. Prod's archived workflows are on the
+  Argo branch too but unlisted: Argo keys its archive by namespace, and the
+  preview's namespace-scoped server lists only its own (`pr<N>-argo`), so the
+  preview gets an archive of its own rather than a view of prod's. MLflow's
+  artifacts are the one non-branchable piece (write-once blobs; tether's
+  object-store backend has no fork): they go to a per-preview prefix
+  (`<ephemeral bucket>/mlflow` or `<data bucket>/tether/mlflow/pr<N>/`) that
+  `tether-down.sh` deletes when the preview retires.
 
 ### Where the dataset lives
 

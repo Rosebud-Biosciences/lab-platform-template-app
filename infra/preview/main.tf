@@ -328,8 +328,10 @@ module "workloads" {
 
   # MLflow and Argo Workflows (with its archive) are stamped alongside Dagster
   # in a full preview, each on its own branch of its own database, so the
-  # preview shows prod's experiments and archived workflows and writes to
-  # neither. Argo's archive is optional: no db/argo object, no archive.
+  # preview shows prod's experiments and writes to neither. Prod's archived
+  # workflows are on the Argo branch but unlisted: Argo keys them by namespace,
+  # and the preview's server sees only its own. Argo's archive is optional: no
+  # db/argo object, no archive.
   enable_mlflow        = local.pipelines
   mlflow_artifact_root = local.pipelines ? local.mlflow_artifact_root : ""
   mlflow_db_host       = local.mlflow_db.host

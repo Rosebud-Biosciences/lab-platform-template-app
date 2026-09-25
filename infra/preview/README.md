@@ -14,7 +14,9 @@ What a preview contains:
   its run storage on a branched database.
 - **MLflow** and **Argo Workflows** (with its archive) — each on a branch of
   its own prod database too, so the preview shows prod's experiments and
-  archived workflows and writes to neither. MLflow's artifacts go to a
+  writes to neither. Prod's archived workflows are on the Argo branch but
+  unlisted: Argo keys them by namespace, and the preview's server sees only
+  `pr<N>-argo`. MLflow's artifacts go to a
   per-preview prefix (tofu: the ephemeral bucket; tether: `<data
   bucket>/tether/mlflow/pr<N>/`, deleted by `tether-down.sh`).
 - **Its data**, from one of two providers (`fork_provider`, README "Ephemeral
