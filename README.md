@@ -427,10 +427,17 @@ several; see `shared-platform.auto.tfvars`).
    preview down without closing the PR.
 7. Point the data objects at real stores: edit the locators in
    `packages/dataset/.tether/objects/*.toml` (or `tether remove` / `tether add`
-   them from that directory), the Iceberg catalog in
+   them from that directory), the Iceberg catalog's `warehouse` in
    `packages/dataset/tether.toml`, and `data_bucket_arn` (with its KMS key,
    `data_bucket_kms_key_arn`, unless the bucket is SSE-S3) /
-   `iceberg_table_bucket_arn` in `shared-platform.auto.tfvars`. Then
+   `iceberg_table_bucket_arn` in `shared-platform.auto.tfvars`. tether reads
+   the catalog's endpoint from the environment, never the committed file: CI
+   gets it from `.github/scripts/tether-env.sh`; on a laptop, export the same
+   four `PYICEBERG_CATALOG__S3TABLES__*` variables, or put the whole catalog
+   (`type`, `warehouse`, `uri` and the three `rest.*` signing keys: it
+   replaces the committed table rather than merging) in the untracked
+   `packages/dataset/.tether/secrets.toml` under `[backends.iceberg.catalog]`.
+   Then
    `cd packages/dataset && uv run tether commit -m "Baseline"` on `main` pins
    prod's current state, and `data-pull.yml` keeps it fresh. Consuming a
    dataset from its own repository instead: "Where the dataset lives".

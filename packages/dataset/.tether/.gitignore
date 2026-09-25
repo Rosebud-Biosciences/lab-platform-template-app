@@ -2,3 +2,4 @@
 /ops.jsonl
 /cache
 /lock
+/secrets.toml

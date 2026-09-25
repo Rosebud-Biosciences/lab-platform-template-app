@@ -16,7 +16,7 @@ dev = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.14" },
-    { name = "tether-vcs", extras = ["cli", "delta", "iceberg", "icechunk", "lance", "neon", "objectstore"], specifier = ">=0.1.0a10" },
+    { name = "tether-vcs", extras = ["cli", "delta", "iceberg", "icechunk", "lance", "neon", "objectstore"], specifier = ">=0.1.0b4" },
     { name = "ty", specifier = ">=0.0.76" },
 ]
 
@@ -2829,14 +2829,14 @@ wheels = [
 
 [[package]]
 name = "tether-vcs"
-version = "0.1.0a10"
+version = "0.1.0b4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "tomlkit" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/df/0a/0ce78da68cc6caa1ffd11e0d2f87d442d6d92f69b6953061f84f19ab8c5c/tether_vcs-0.1.0a10.tar.gz", hash = "sha256:88023e15a3b01f083b55719b413a278126bbe95ece5094ff8f4e4aa3aa2ce426", size = 188146, upload-time = "2026-09-14T16:18:49.553Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b8/2b/fd345349f6882068aa820f02d6d9eee08b57398fe33367dde4990dfca63d/tether_vcs-0.1.0b4.tar.gz", hash = "sha256:7b5c138e44a98d32d19af5781c574b2961ec45874a4f2519a743aabe42689525", size = 296691, upload-time = "2026-09-24T15:25:27.202Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2f/fd/ba7a77d47ce57165f08c519ae180eb31cb72cb74462529568466ffcc84d3/tether_vcs-0.1.0a10-py3-none-any.whl", hash = "sha256:811d43862e24dddbb8f07913dcbd43485532cb1a7714597e34584ebc871eca45", size = 207194, upload-time = "2026-09-14T16:18:48.259Z" },
+    { url = "https://files.pythonhosted.org/packages/3d/c6/1dbc5eabdcb77dc2f2e952cf4a8fc3b5b949274333c69b1df56d62e64e92/tether_vcs-0.1.0b4-py3-none-any.whl", hash = "sha256:f5dfb40a98d45c070547a0f111e5f6f4725bda5851cdf7e50c4fd5ecba0d6cfc", size = 323767, upload-time = "2026-09-24T15:25:25.89Z" },
 ]
 
 [package.optional-dependencies]

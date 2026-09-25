@@ -10,12 +10,11 @@
 # them to your real stores -- see README "Ephemeral data" and "Adopt this
 # template". Nothing is contacted until a command asks for a state.
 #
-# Written by tether 0.1.0a10. When you move to a newer tether, run
-# `tether upgrade` (it migrates the format) and follow its notes; b1 moves the
-# Iceberg catalog `uri` below into the untracked .tether/secrets.toml.
+# `tether upgrade` migrates this file when tether's format moves on; it
+# rewrites the file without these comments, so carry them over.
 
 [tether]
-version = 4
+version = 5
 
 [dataset]
 id = "6e117556"
@@ -35,9 +34,14 @@ fork = "eager"
 file = "immutable"
 pin = "native"
 
-# pyiceberg catalog for every iceberg object (lake/*): S3 Tables' Iceberg REST
-# endpoint, SigV4-signed with the ambient AWS credentials. `warehouse` is the
-# table bucket ARN. Local runs override it with the ICEBERG_CATALOG env var
-# (see src/dataset/openers.py) and never read this table.
-[backends.iceberg]
-catalog = { type = "rest", uri = "https://s3tables.us-west-2.amazonaws.com/iceberg", warehouse = "arn:aws:s3tables:us-west-2:123456789012:bucket/your-table-bucket", "rest.sigv4-enabled" = "true", "rest.signing-name" = "s3tables", "rest.signing-region" = "us-west-2" }
+# pyiceberg catalog for every iceberg object (lake/*, catalog_name
+# "s3tables"): S3 Tables' Iceberg REST catalog, `warehouse` its table bucket
+# ARN. A committed file may name no endpoint, so the rest -- uri and SigV4
+# signing -- comes from the environment (PYICEBERG_CATALOG__S3TABLES__*, which
+# .github/scripts/tether-env.sh exports from AWS_REGION) or, on a laptop, the
+# untracked .tether/secrets.toml, whose [backends.iceberg.catalog] replaces
+# this table (so it repeats type and warehouse). The app's own openers read
+# the ICEBERG_CATALOG env var instead and never this table.
+[backends.iceberg.catalog]
+type = "rest"
+warehouse = "arn:aws:s3tables:us-west-2:123456789012:bucket/your-table-bucket"

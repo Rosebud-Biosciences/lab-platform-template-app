@@ -27,6 +27,18 @@ TETHER_BIN="${TETHER_BIN:-$PWD/.venv/bin/tether}"
   exit 1
 }
 
+# The Iceberg catalog's endpoint and signing, which tether.toml may not name:
+# S3 Tables' Iceberg REST endpoint in this region, SigV4-signed. pyiceberg
+# reads them under the manifests' catalog name; anything already set wins.
+_tether_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+if [ -n "$_tether_region" ]; then
+  export PYICEBERG_CATALOG__S3TABLES__URI="${PYICEBERG_CATALOG__S3TABLES__URI:-https://s3tables.$_tether_region.amazonaws.com/iceberg}"
+  export PYICEBERG_CATALOG__S3TABLES__REST__SIGV4_ENABLED="${PYICEBERG_CATALOG__S3TABLES__REST__SIGV4_ENABLED:-true}"
+  export PYICEBERG_CATALOG__S3TABLES__REST__SIGNING_NAME="${PYICEBERG_CATALOG__S3TABLES__REST__SIGNING_NAME:-s3tables}"
+  export PYICEBERG_CATALOG__S3TABLES__REST__SIGNING_REGION="${PYICEBERG_CATALOG__S3TABLES__REST__SIGNING_REGION:-$_tether_region}"
+fi
+unset _tether_region
+
 tether() { (cd "$DATASET_ROOT" && "$TETHER_BIN" "$@"); }
 dgit() { git -C "$DATASET_ROOT" "$@"; }
 
