@@ -28,9 +28,10 @@
 #      backend has no fork, and the stack derives the prefix per preview --
 #      infra/preview/main.tf.)
 #   4. Drop the bookmark and let gc judge its branches (skipped when step 2
-#      kept them). --force-prune is the only way BRANCH_IS_STORAGE systems
-#      (Neon) and unpinned writes go, which for an abandoned preview is the
-#      intent.
+#      kept them). --force-prune is the only way unpinned writes go, which for
+#      an abandoned preview is the intent. The Neon fork goes through Neon's
+#      API instead (drop_neon_fork below): tether 0.1.0b4's gc cannot delete a
+#      branch that is its own storage.
 #   5. Not merged: delete stores the PR itself created (objects in its
 #      manifests that main's do not have), under DATA_ROOT_URI only. This is the
 #      outside-in version of a tether feature in progress; once tether records
@@ -53,6 +54,53 @@ bookmark="${1:?usage: tether-down.sh <bookmark> <merged>}"
 merged="${2:?usage: tether-down.sh <bookmark> <merged>}"
 promotable="${PROMOTABLE_KEYS:-}"
 
+# tether 0.1.0b4's gc plans a BRANCH_IS_STORAGE branch (Neon) without reading
+# its head, then refuses the head it can read when it acts ("the plan could
+# not read ... but it reads now"), so it can never delete the Neon fork, and
+# fails the whole gc trying. This deletes the fork (and any `.<n>` sibling a
+# reset left) in every Neon project the manifests name. A branch that still
+# has branches hanging off it -- the pins a merge's `tether commit` took,
+# which gc releases -- is left for the call after gc (`drop_neon_fork after-gc`),
+# which warns if one still does.
+neon_api() {
+  curl -fsS -H "Authorization: Bearer $NEON_API_KEY" -H "Accept: application/json" "$@"
+}
+drop_neon_fork() {
+  local objects dataset fork projects project branches id tries
+  objects="$DATASET_ROOT/.tether/objects"
+  dataset=$(sed -n 's/^id *= *"\([^"]*\)".*/\1/p' "$DATASET_ROOT/tether.toml" | head -1)
+  fork="tether.ws.$dataset.$bookmark"
+  projects=$(grep -rl '^kind *= *"neon"' "$objects" | while IFS= read -r manifest; do
+    sed -n 's/^project_id *= *"\([^"]*\)".*/\1/p' "$manifest"
+  done | sort -u)
+  for project in $projects; do
+    branches=$(neon_api "https://console.neon.tech/api/v2/projects/$project/branches")
+    for id in $(jq -r --arg f "$fork" '.branches[] | select(.name | test("^" + ($f | gsub("[.]"; "\\.")) + "([.][0-9]+)?$")) | .id' <<<"$branches"); do
+      if jq -e --arg id "$id" 'any(.branches[]; .parent_id == $id)' <<<"$branches" >/dev/null; then
+        if [ "${1:-}" = after-gc ]; then
+          echo "::warning::Neon branch $id ($fork) in project $project still has branches hanging off it after gc; delete them, then it, by hand."
+        else
+          echo "tether-down: Neon branch $id ($fork) has branches hanging off it (pins gc releases); deleting it after gc"
+        fi
+        continue
+      fi
+      if jq -e --arg id "$id" 'any(.branches[]; .id == $id and .protected == true)' <<<"$branches" >/dev/null; then
+        neon_api -X PATCH -H "Content-Type: application/json" -d '{"branch":{"protected":false}}' \
+          "https://console.neon.tech/api/v2/projects/$project/branches/$id" >/dev/null
+      fi
+      echo "tether-down: deleting Neon branch $id ($fork) in project $project"
+      neon_api -X DELETE "https://console.neon.tech/api/v2/projects/$project/branches/$id" >/dev/null
+      # gc lists branches next; wait until Neon stops listing this one.
+      for tries in $(seq 1 30); do
+        branches=$(neon_api "https://console.neon.tech/api/v2/projects/$project/branches")
+        jq -e --arg id "$id" 'any(.branches[]; .id == $id)' <<<"$branches" >/dev/null || break
+        [ "$tries" -lt 30 ] || { echo "tether-down: Neon still lists branch $id" >&2; return 1; }
+        sleep 2
+      done
+    done
+  done
+}
+
 dgit fetch --quiet origin '+refs/heads/pr*:refs/heads/pr*' '+refs/heads/main:refs/remotes/origin/main' || true
 
 if ! dgit show-ref --verify --quiet "refs/heads/$bookmark"; then
@@ -65,9 +113,9 @@ if [ "$merged" = "true" ]; then
   landed=false
   current=$(dgit rev-parse --abbrev-ref HEAD)
   dgit checkout --quiet "$bookmark"
+  # shellcheck disable=SC2086 # $promotable is a list of keys
   if tether new "$bookmark" &&
     tether commit -m "data written by $bookmark" --force &&
-    # shellcheck disable=SC2086
     tether promote $promotable --strategy ff; then
     landed=true
     echo "tether-down: landed $bookmark on main for: $promotable"
@@ -92,7 +140,9 @@ if [ "$landed" != "true" ]; then
 fi
 
 dgit branch -D "$bookmark" >/dev/null
+drop_neon_fork
 tether gc --prune-bookmarks --force-prune --no-dry-run
+drop_neon_fork after-gc
 dgit push --quiet origin --delete "$bookmark" || echo "tether-down: bookmark branch already gone from origin"
 
 if [ "$merged" = "true" ] || [ -z "${DATA_ROOT_URI:-}" ]; then
