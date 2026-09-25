@@ -12,7 +12,9 @@
 #               any encoding. Registering another db/<svc> manifest adds a key
 #               here with no script change.
 #   data_refs   DATA_REFS: every non-database object -> address on the fork,
-#               exactly as `tether open --json` prints it
+#               as `tether open --json` prints it, less the @vN that tether
+#               appends even to a writable Lance branch (DATA_REFS reads a
+#               version as a read-only pin)
 #
 # That object is what CI hands the reusable preview-up workflow as
 # extra_tfvars_json, and what the matrix reads DATA_REFS from.
@@ -67,7 +69,7 @@ print(json.dumps({"host": d.hostname or "", "dbname": (d.path or "/").lstrip("/"
         '. + {($k): ($d + {project_id: $p, branch_id: $b})}' <<<"$dbs")
       ;;
     *)
-      address=$(tether open "$key" --json | jq -r '.address')
+      address=$(tether open "$key" --json | jq -r 'if .read_only then .address else .address | sub("@v[0-9]+$"; "") end')
       refs=$(jq -c --arg k "$key" --arg v "$address" '. + {($k): $v}' <<<"$refs")
       ;;
   esac
