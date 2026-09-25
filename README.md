@@ -448,12 +448,15 @@ several; see `shared-platform.auto.tfvars`).
    (0.25–2 CU, 300 s suspend) — tether creates fork endpoints with the
    project defaults, so this is where the cost stays where the tofu path had
    it. Grant the data-access policy to a role and set `DATA_ROLE_ARN` (or
-   attach it to `PREVIEW_ROLE_ARN`), set `DATA_ROOT_URI`
-   (`s3://<bucket>/tether/`) so an abandoned PR's own stores, and every
-   retired preview's MLflow artifacts, can be deleted,
-   then `FORK_PROVIDER=tether`. Same-repo PRs only: `fork-data` pushes the
-   `pr<N>` bookmark branch. Once real stores exist, `ENABLE_TETHER_MATRIX=true`
-   turns on the weekly live test.
+   attach it to `PREVIEW_ROLE_ARN`), with `working_branch_prefix = "tether.ws."`
+   so Preview Down can delete Lance forks. For the deletes a pull_request run
+   must not hold (the stores a PR created, MLflow artifacts), enable
+   `aws/bootstrap`'s teardown role (main's runs only), attach the data-access
+   policy with `allow_delete = true` to it, and set `TEARDOWN_ROLE_ARN`: the
+   nightly sweep uses it. Set `DATA_ROOT_URI` (`s3://<bucket>/tether/`), where
+   those deletes may happen, then `FORK_PROVIDER=tether`. Same-repo PRs only:
+   `fork-data` pushes the `pr<N>` bookmark branch. Once real stores exist,
+   `ENABLE_TETHER_MATRIX=true` turns on the weekly live test.
 
 ## Costs
 

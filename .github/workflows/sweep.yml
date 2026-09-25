@@ -60,9 +60,13 @@ jobs:
           fetch-depth: 0 # tether gc keeps the pins any commit's manifests reference
           submodules: true # a dataset consumed from its own repo rides in as a submodule
 
+      # TEARDOWN_ROLE_ARN: a role only this repo's default-branch runs can
+      # assume (aws/bootstrap enable_teardown_role), holding the deletes a
+      # pull_request run must not -- the stores a PR created. Without it the
+      # sweep releases forks but leaves those stores, and their bookmarks.
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: ${{ vars.DATA_ROLE_ARN || vars.PREVIEW_ROLE_ARN }}
+          role-to-assume: ${{ vars.TEARDOWN_ROLE_ARN || vars.DATA_ROLE_ARN || vars.PREVIEW_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - uses: astral-sh/setup-uv@v10.1.0  # no moving tags past v8; exact pin
@@ -75,6 +79,7 @@ jobs:
       - name: Retire bookmarks of closed PRs
         run: |
           set -euo pipefail
+          failed=""
           # Bookmarks live in the repository that holds the dataset (tether-env.sh).
           for ref in $(git -C "$DATASET_ROOT" ls-remote --heads origin 'pr[0-9]*' | awk '{print $2}'); do
             bookmark="${ref#refs/heads/}"
@@ -84,6 +89,11 @@ jobs:
               OPEN) echo "$bookmark: PR open, keeping its forks" ;;
               UNKNOWN) echo "::warning::$bookmark: could not look up PR #$number; keeping its forks" ;;
               *) echo "$bookmark: PR $pr_state, retiring"
-                 .github/scripts/tether-down.sh "$bookmark" ;;
+                 .github/scripts/tether-down.sh "$bookmark" || failed="$failed $bookmark" ;;
             esac
           done
+          # One bookmark's failure must not strand the rest; report them all.
+          if [ -n "$failed" ]; then
+            echo "::error::could not retire:$failed"
+            exit 1
+          fi

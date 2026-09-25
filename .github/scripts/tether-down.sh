@@ -25,17 +25,24 @@
 #      and the artifacts those runs wrote go with them. (Artifacts are not a
 #      tether object: tether's object-store backend has no fork, and the stack
 #      derives the prefix per preview -- infra/preview/main.tf.)
-#   3. Drop the bookmark and let gc release its branches. --force-prune is
-#      the only way unpinned writes go, which is the intent. The Neon fork goes
-#      through Neon's API instead (drop_neon_fork below): tether 0.1.0b4's gc
-#      cannot delete a branch that is its own storage.
+#   3. Drop the local bookmark and let gc release its branches. --force-prune
+#      is the only way unpinned writes go, which is the intent. The Neon fork
+#      goes through Neon's API instead (drop_neon_fork below): tether 0.1.0b4's
+#      gc cannot delete a branch that is its own storage. Deleting a Lance
+#      branch needs the role's working-branch delete (aws/data-access
+#      working_branch_prefix).
 #   4. Delete stores the PR itself created (objects in its manifests that main
 #      did not have where the PR branched off), under DATA_ROOT_URI only. Such
 #      an object has nothing to fork from, so the preview wrote it at its real
 #      location. If the PR merged, main's manifests now name it and prod's
 #      first run creates it afresh. This is the outside-in version of a tether
 #      feature in progress; once tether records store creation in its op log,
-#      `gc` does this itself.
+#      `gc` does this itself. It takes a delete on real store locations, which
+#      only the default-branch teardown role holds (sweep.yml); Preview Down's
+#      role cannot, and leaves them to the next sweep.
+#   5. Delete the bookmark from origin, last: while anything above is still
+#      owed -- a gc failure, artifacts or a store this role could not delete --
+#      the bookmark stays, so the nightly sweep retries it.
 #
 # All git and tether commands act on the repository holding the dataset (see
 # tether-env.sh): this one for packages/dataset, the dataset repo when
@@ -106,24 +113,33 @@ if ! dgit show-ref --verify --quiet "refs/heads/$bookmark"; then
   exit 0
 fi
 head=$(dgit rev-parse "refs/heads/$bookmark")
+owed="" # deletes this role could not make; the bookmark stays until they are
 
 # Step 2: the preview's MLflow artifacts.
 if [ -n "${DATA_ROOT_URI:-}" ]; then
   artifacts="${DATA_ROOT_URI%/}/mlflow/$bookmark/"
   if aws s3 ls "$artifacts" >/dev/null 2>&1; then
     echo "tether-down: deleting MLflow artifacts $artifacts"
-    aws s3 rm --recursive --quiet "$artifacts"
+    aws s3 rm --recursive --quiet "$artifacts" || owed="$owed $artifacts"
   fi
 fi
 
-# Step 3: the forks.
+# Step 3: the forks. A failure here exits with the bookmark still on origin.
 dgit branch -D "$bookmark" >/dev/null
 drop_neon_fork
 tether gc --prune-bookmarks --force-prune --no-dry-run
 drop_neon_fork after-gc
-dgit push --quiet origin --delete "$bookmark" || echo "tether-down: bookmark branch already gone from origin"
 
-[ -n "${DATA_ROOT_URI:-}" ] || exit 0
+# Step 5, reached from each exit below: retire the bookmark unless a delete is
+# still owed.
+retire() {
+  if [ -n "$owed" ]; then
+    echo "::warning::tether-down: could not delete$owed (this role cannot delete store locations); keeping $bookmark for the nightly sweep's teardown role."
+    return
+  fi
+  dgit push --quiet origin --delete "$bookmark" || echo "tether-down: bookmark branch already gone from origin"
+}
+[ -n "${DATA_ROOT_URI:-}" ] || { retire; exit 0; }
 
 # Step 4: stores this PR created. Where the PR branched off: the newest commit
 # on main's first-parent line that the bookmark contains -- however the PR
@@ -141,18 +157,19 @@ while IFS= read -r commit; do
 done < <(dgit rev-list --first-parent refs/remotes/origin/main)
 if [ -z "$base" ]; then
   echo "::warning::tether-down: $bookmark shares no history with main; leaving any stores it created."
+  retire
   exit 0
 fi
-comm -13 \
+while IFS= read -r manifest; do
+  [ -n "$manifest" ] || continue
+  toml=$(dgit show "$head:./$manifest")
+  kind=$(sed -n 's/^kind *= *"\([^"]*\)".*/\1/p' <<<"$toml")
+  uri=$(sed -n 's/^uri *= *"\([^"]*\)".*/\1/p' <<<"$toml")
+  case "$kind" in icechunk | lance | delta) ;; *) continue ;; esac
+  case "$uri" in "$DATA_ROOT_URI"*) ;; *) echo "tether-down: leaving $uri (outside DATA_ROOT_URI)"; continue ;; esac
+  echo "tether-down: deleting store $uri created by $bookmark"
+  aws s3 rm --recursive --quiet "${uri%/}/" || owed="$owed $uri"
+done < <(comm -13 \
   <(dgit ls-tree -r --name-only "$base" -- .tether/objects | sort) \
-  <(dgit ls-tree -r --name-only "$head" -- .tether/objects | sort) |
-  while IFS= read -r manifest; do
-    [ -n "$manifest" ] || continue
-    toml=$(dgit show "$head:./$manifest")
-    kind=$(sed -n 's/^kind *= *"\([^"]*\)".*/\1/p' <<<"$toml")
-    uri=$(sed -n 's/^uri *= *"\([^"]*\)".*/\1/p' <<<"$toml")
-    case "$kind" in icechunk | lance | delta) ;; *) continue ;; esac
-    case "$uri" in "$DATA_ROOT_URI"*) ;; *) echo "tether-down: leaving $uri (outside DATA_ROOT_URI)"; continue ;; esac
-    echo "tether-down: deleting store $uri created by $bookmark"
-    aws s3 rm --recursive --quiet "${uri%/}/"
-  done
+  <(dgit ls-tree -r --name-only "$head" -- .tether/objects | sort))
+retire
