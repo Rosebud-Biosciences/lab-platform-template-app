@@ -20,6 +20,11 @@ name: Deploy
 on:
   push:
     branches: [main]
+    # A push that changes only docs has nothing to build, migrate or roll.
+    # Anything else deploys, even alongside docs.
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
 
 # Serialize deploys; a queued newer commit still deploys after the current one.
 concurrency:
