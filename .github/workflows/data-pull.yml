@@ -70,6 +70,10 @@ jobs:
           source .github/scripts/tether-env.sh
           default=$(dgit symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || echo main)
           dgit checkout --quiet "$default" 2>/dev/null || true
+          # tether keeps its bookmark in a gitignored workspace file, so a fresh
+          # checkout is on none and `pull` refuses. On the trunk `new` forks
+          # nothing: its working refs are the upstream branches.
+          tether new "$default"
           before=$(dgit rev-parse HEAD)
           tether pull -m "data: nightly pull of what moved upstream"
           if [ "$(dgit rev-parse HEAD)" != "$before" ]; then
