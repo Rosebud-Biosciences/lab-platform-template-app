@@ -141,12 +141,10 @@ jobs:
     permissions:
       id-token: write
       contents: write
-      actions: read # a later push reads the first run's tether-fork artifact
     outputs:
       tfvars_b64: ${{ steps.fork.outputs.tfvars_b64 }}
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-      GH_TOKEN: ${{ github.token }}
       AWS_REGION: ${{ vars.AWS_REGION }}
       DATASET_ROOT: ${{ vars.DATASET_ROOT || 'packages/dataset' }}
     steps:
@@ -169,15 +167,6 @@ jobs:
 
       - id: fork
         run: .github/scripts/tether-fork.sh "pr${{ github.event.pull_request.number }}"
-
-      # The fork's addresses (no passwords), for the PR's later pushes, which
-      # keep the fork rather than run tether again. Every run re-uploads them,
-      # so the newest copy is always within retention.
-      - uses: actions/upload-artifact@v7
-        with:
-          name: tether-fork-pr${{ github.event.pull_request.number }}
-          path: ${{ runner.temp }}/tether-tfvars.json
-          if-no-files-found: error
 
   # Skipped fork-data (tofu mode) must not skip this job, hence the explicit
   # result check instead of the default all-succeeded rule.

@@ -13,7 +13,7 @@ dev = [
     # is also carried by the workflows package so the built image can migrate.
     "db[migrate]",
     "ty>=0.0.76",
-    "tether-vcs[cli,delta,iceberg,icechunk,lance,neon,objectstore]>=0.1.0b4",
+    "tether-vcs[cli,delta,iceberg,icechunk,lance,neon,objectstore]>=0.1.0b6",
 ]
 
 [tool.uv.sources]
