@@ -5,7 +5,33 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
+  # The preview stack (infra/preview): formatted, and valid against the
+  # platform modules it pins.
+  infra:
+    runs-on: ubuntu-latest
+    env:
+      MODULES_GIT_TOKEN: ${{ secrets.MODULES_GIT_TOKEN }} # only while the platform repo is private
+    steps:
+      - uses: actions/checkout@v7
+
+      - if: ${{ env.MODULES_GIT_TOKEN != '' }}
+        run: git config --global url."https://x-access-token:${MODULES_GIT_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: "1.12.6"
+          tofu_wrapper: false
+
+      - run: tofu fmt -check -recursive -diff infra
+
+      - run: tofu -chdir=infra/preview init -backend=false -input=false
+
+      - run: tofu -chdir=infra/preview validate
+
   test:
     runs-on: ubuntu-latest
     # Row-level security is PostgreSQL's: its tests (TEST_POSTGRES_URL) need a
@@ -25,9 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # setup-uv stopped publishing moving major tags at v8; pin the full
-      # version (dependabot bumps exact pins).
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: "0.11.3"
           enable-cache: true

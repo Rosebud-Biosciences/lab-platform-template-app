@@ -1,0 +1,18 @@
+# Paths a copy of this template carries verbatim, checked by
+# .github/workflows/template-drift.yml once the copy sets TEMPLATE_REPOSITORY.
+# A fix to any of them lands in the template first and is copied unchanged.
+# Everything else (infra/, the README, preview-up.yml) is the copy's own --
+# and so are the dataset manifests' deployment values inside packages/ (where
+# each object lives), which check.sh masks per deployment-values.sed. Drop a
+# path here once the copy owns it.
+packages
+Dockerfile
+pyproject.toml
+uv.lock
+.github/scripts
+.github/workflows/ci.yml
+.github/workflows/data-pull.yml
+.github/workflows/deploy.yml
+.github/workflows/preview-down.yml
+.github/workflows/sweep.yml
+.github/workflows/tether-matrix.yml

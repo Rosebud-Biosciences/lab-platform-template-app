@@ -305,7 +305,7 @@ lives in a repository of its own. Bring it into this repo as a git submodule
 and point the tether machinery at it:
 
 ```shell
-git submodule add git@github.com:Rosebud-Biosciences/lab-dataset.git datasets/lab
+git submodule add git@github.com:your-org/your-dataset.git datasets/lab
 # repository variable DATASET_ROOT=datasets/lab
 ```
 
@@ -327,19 +327,22 @@ dataset repo, for a submodule. Three consequences follow from that:
   whose `tether.toml` is a thin registration of the shared repo's objects.
 
 **A copy that keeps tracking this template** (a staging or sandbox
-deployment that pulls every template fix verbatim, like
-`lab-platform-sandbox`) hits the one thing in `packages/dataset` that is not
-the template's: *where* each object lives. A manifest holds both what the code
+deployment that pulls every template fix verbatim) hits the one thing in
+`packages/dataset` that is not the template's: *where* each object lives. A manifest holds both what the code
 relies on (the object's key, kind and policy) and its locator (bucket, Neon
 project, table bucket, region), and tether commits them together. Two ways to
 hold real locators in such a copy:
 
-- **Keep the dataset here and mask the locators in the drift check.** The
-  copy compares `packages/` with the template's after rewriting the locator
-  values to a placeholder on both sides, and a script fills in the real ones
-  from its infrastructure outputs. Keys, kinds and policies still have to
-  match. One repo per deployment; this is `lab-platform-sandbox`'s layout
-  (its `.github/template-drift/`).
+- **Keep the dataset here and mask the locators in the drift check.** This
+  repo ships the check: `.github/workflows/template-drift.yml`, inert until a
+  copy sets the `TEMPLATE_REPOSITORY` variable, compares the paths in
+  `.github/template-drift/shared-paths` with the template's. It rewrites the
+  locator values to a placeholder on both sides first
+  (`deployment-values.sed`) and ignores what the copy's data has recorded
+  (each manifest's state and pins, which `data-pull` moves nightly); a
+  script of the copy's own fills in the real locators from its
+  infrastructure outputs. Keys, kinds and policies still have to match. One
+  repo per deployment.
 - **Give each deployment a dataset repository of its own**, brought in as a
   submodule (above). The shared code then carries no locators at all, but each
   deployment has a second repo, and nothing compares its manifests with the
@@ -457,6 +460,16 @@ several; see `shared-platform.auto.tfvars`).
    those deletes may happen, then `FORK_PROVIDER=tether`. Same-repo PRs only:
    `fork-data` pushes the `pr<N>` bookmark branch. Once real stores exist,
    `ENABLE_TETHER_MATRIX=true` turns on the weekly live test.
+9. Replace `SECURITY.md` and `.github/CODEOWNERS`, which name this template's
+   maintainers, with your own. A copy that keeps tracking this template: set
+   the `TEMPLATE_REPOSITORY` variable to turn on `template-drift` ("Where the
+   dataset lives").
+
+## Security
+
+Read [SECURITY.md](SECURITY.md) before you adopt: a preview runs the pull
+request's code with the preview role, which deploys as cluster-admin in the
+shared cluster, and in tether mode its pods write into the production stores.
 
 ## Costs
 
@@ -472,4 +485,4 @@ kilobytes per store.
 
 ## License
 
-Apache-2.0, same as the platform repo.
+Apache-2.0, same as the platform repo; see [NOTICE](NOTICE).

@@ -1,0 +1,4 @@
+# What CI roles may do, and the preview stack they apply. A repository
+# created from this template: replace with your own owners.
+/.github/ @elyall
+/infra/   @elyall

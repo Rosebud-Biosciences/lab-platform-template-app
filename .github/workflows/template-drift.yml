@@ -1,0 +1,38 @@
+name: template-drift
+
+# For a copy of this template that keeps tracking it (a staging or sandbox
+# deployment taking every template fix verbatim): the app, db, workflow
+# packages and most CI are copies of the template's
+# (.github/template-drift/shared-paths). This fails a PR, or the weekly run, when a
+# copy has drifted, so a fix made in one repo is not silently missing from the
+# other; where the dataset's objects live, and what the deployment's data has
+# recorded, are allowed to differ (.github/template-drift/check.sh). Skips
+# itself until TEMPLATE_REPOSITORY is set (e.g.
+# "Rosebud-Biosciences/lab-platform-template-app"), so it is inert in the
+# template and in a copy that diverges; a private template needs
+# TEMPLATE_REPO_TOKEN (read access), else MODULES_GIT_TOKEN is tried.
+
+on:
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    if: ${{ vars.TEMPLATE_REPOSITORY != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ vars.TEMPLATE_REPOSITORY }}
+          ref: ${{ vars.TEMPLATE_REF || 'main' }}
+          path: .template
+          token: ${{ secrets.TEMPLATE_REPO_TOKEN || secrets.MODULES_GIT_TOKEN || github.token }}
+
+      - run: .github/template-drift/check.sh .template

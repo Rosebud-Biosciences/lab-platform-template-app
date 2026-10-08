@@ -1,0 +1,26 @@
+name: Bug report
+description: The app, a workflow or the preview stack does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: A security problem? Report it privately instead (Security tab, "Report a vulnerability").
+  - type: input
+    id: where
+    attributes:
+      label: Package, workflow or stack
+      placeholder: packages/app, .github/workflows/preview-up.yml, infra/preview
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      description: The error, trimmed to what matters, and how to reproduce it (no secrets, account IDs or hostnames).
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: this repo's commit, lab-platform's tag, tether-vcs, FORK_PROVIDER
