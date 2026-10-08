@@ -77,5 +77,6 @@ Before first use, replace the placeholders in:
 
 - `backend.tf` — your state bucket / lock table (bootstrap module outputs);
 - `shared-platform.auto.tfvars` — your cluster/VPC/Karpenter/Neon identity;
-- the `github.com/Rosebud-Biosciences/...?ref=main` module sources — a pinned
-  release tag (and your fork, if you forked the platform too).
+- the `github.com/Rosebud-Biosciences/...?ref=v0.2.0` module sources — your
+  fork, if you forked the platform too; bump the tag with the workflows'
+  `uses:` lines.

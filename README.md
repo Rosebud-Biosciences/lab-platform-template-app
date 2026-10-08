@@ -408,9 +408,12 @@ several; see `shared-platform.auto.tfvars`).
 
 1. The `Rosebud-Biosciences/lab-platform` references (workflow
    `uses:` lines, `infra/preview` module sources, links) point at the upstream
-   platform repo. Forking the platform too? Find-and-replace them with your
-   fork. Either way, pin `?ref=main` to a platform release tag. (Neither
-   `uses:` nor a module `source` accepts a variable, so this is a literal.)
+   platform repo, pinned to its release `v0.2.0`: the reusable workflows run
+   with your AWS roles, so never point them at a moving branch. Forking the
+   platform too? Find-and-replace them with your fork. Upgrading: bump every
+   `@v0.2.0` and `?ref=v0.2.0` together, after reading the platform's
+   CHANGELOG. (Neither `uses:` nor a module `source` accepts a variable, so
+   this is a literal.)
 2. Fill in `infra/preview/backend.tf` (state bucket/lock table) and
    `infra/preview/shared-platform.auto.tfvars` (cluster, VPC, Karpenter role,
    tailnet suffix, Neon parent branches, and the bootstrap stack's

@@ -29,7 +29,7 @@ jobs:
   down:
     # `unlabeled` fires once per removed label; only the `preview` label matters.
     if: ${{ vars.CLUSTER_NAME != '' && (github.event.action == 'closed' || github.event.label.name == 'preview') }}
-    uses: Rosebud-Biosciences/lab-platform/.github/workflows/preview-down.yml@main
+    uses: Rosebud-Biosciences/lab-platform/.github/workflows/preview-down.yml@v0.2.0
     with:
       preview_name: pr${{ github.event.pull_request.number }}
       working_directory: infra/preview

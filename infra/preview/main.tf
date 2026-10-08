@@ -59,7 +59,7 @@ locals {
 
 module "storage" {
   count  = local.tofu_forks ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/preview-storage?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/preview-storage?ref=v0.2.0"
 
   name_prefix = var.preview_name
   iam_path    = var.preview_iam_path
@@ -68,7 +68,7 @@ module "storage" {
 
 module "neon" {
   count  = local.neon_enabled ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/lab-platform//modules/neon-branches?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/neon-branches?ref=v0.2.0"
 
   providers = { neon = neon }
 
@@ -81,7 +81,7 @@ module "neon" {
 # the migrations created, then the namespace.
 module "iceberg" {
   count  = local.iceberg_enabled ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/iceberg-branches?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/iceberg-branches?ref=v0.2.0"
 
   name_prefix      = var.preview_name
   table_bucket_arn = var.iceberg_table_bucket_arn
@@ -109,7 +109,7 @@ check "tether_data_bucket_key" {
 
 module "data_access" {
   count  = local.tether_forks ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-access?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-access?ref=v0.2.0"
 
   name        = "${var.preview_name}-data-access"
   bucket_arn  = var.data_bucket_arn
@@ -199,7 +199,7 @@ locals {
 # Data axis: per-service IAM roles (IRSA on the shared EKS cluster) carrying
 # whichever object-store access the fork provider calls for.
 module "data" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-adapter?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-adapter?ref=v0.2.0"
 
   cluster_name      = var.cluster_name
   name_prefix       = local.name_prefix
@@ -235,7 +235,7 @@ module "data" {
 # in-flight runs -- while Ray workers, whose tasks Ray reschedules, run on spot
 # behind a taint that keeps everything else off those nodes.
 module "compute" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/compute-adapter?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/compute-adapter?ref=v0.2.0"
 
   providers = { aws = aws, helm = helm }
 
@@ -272,7 +272,7 @@ module "compute" {
 }
 
 module "workloads" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//modules/workloads?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/workloads?ref=v0.2.0"
 
   providers = {
     kubernetes = kubernetes
