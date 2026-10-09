@@ -15,9 +15,11 @@ name: Data pull
 # Pushes to main directly. If main is protected, swap the push for a PR (e.g.
 # peter-evans/create-pull-request) -- the commit is small and mechanical.
 #
-# Requires: secrets NEON_API_KEY; vars AWS_REGION and DATA_ROLE_ARN (or
-# PREVIEW_ROLE_ARN) holding the data-access policy -- pins are tags written
-# into the stores.
+# Requires: secrets NEON_API_KEY; vars AWS_REGION and TEARDOWN_ROLE_ARN, the
+# role only the default branch's runs may assume, holding the data-access
+# policy without protect_trunk -- pins are tags written on the stores' trunks,
+# which the pull-request roles may not touch. Falls back to DATA_ROLE_ARN (or
+# PREVIEW_ROLE_ARN) where the trunk is not fenced.
 
 # Inert until adopted: every job here is gated on the CLUSTER_NAME repository
 # variable, which an adopter sets anyway (README "Adopt this template"). In the
@@ -49,7 +51,7 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ vars.DATA_ROLE_ARN || vars.PREVIEW_ROLE_ARN }}
+          role-to-assume: ${{ vars.TEARDOWN_ROLE_ARN || vars.DATA_ROLE_ARN || vars.PREVIEW_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0

@@ -13,7 +13,12 @@ name: Preview Sweep
 on:
   schedule:
     - cron: "17 9 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      iam_min_age_hours:
+        description: "Retire orphaned /preview/ IAM only once older than this many hours (scheduled runs: 24)"
+        type: string
+        default: "24"
 
 # pull-requests: read is load-bearing — the reusable sweep asks each pr<N>
 # workspace's PR whether it's still open, and a called workflow can't hold
@@ -27,12 +32,13 @@ permissions:
 jobs:
   sweep:
     if: ${{ vars.CLUSTER_NAME != '' }}
-    uses: Rosebud-Biosciences/lab-platform/.github/workflows/nightly-sweep.yml@v0.2.0
+    uses: Rosebud-Biosciences/lab-platform/.github/workflows/nightly-sweep.yml@v0.3.0
     with:
       working_directory: infra/preview
       role_to_assume: ${{ vars.PREVIEW_ROLE_ARN }}
       cluster_name: ${{ vars.CLUSTER_NAME }}
       aws_region: ${{ vars.AWS_REGION }}
+      iam_min_age_hours: ${{ fromJSON(inputs.iam_min_age_hours || '24') }}
       tailscale: true
     secrets:
       neon_api_key: ${{ secrets.NEON_API_KEY }}
