@@ -54,7 +54,7 @@ flowchart LR
 | --- | --- |
 | `packages/db` | SQLAlchemy models, engine helper, Alembic migrations (the schema) |
 | `packages/app` | FastAPI webapp: `/` reads the DB, `/healthz` never does, marimo notebook at `/notebooks/`, tailnet identity at `/whoami`, the data it is wired to at `/data` |
-| `packages/dataset` | The app's [tether](https://github.com/elyall/tether) dataset as a package: `tether.toml` + one manifest per data object (Neon x2, Icechunk, Iceberg, Lance, Delta, an S3 prefix) next to the `DATA_REFS` contract (`refs.py`) and the native openers (`openers.py`, extra `[stores]`) |
+| `packages/dataset` | The app's [tether](https://github.com/Rosebud-Biosciences/tether) dataset as a package: `tether.toml` + one manifest per data object (Neon x2, Icechunk, Iceberg, Lance, Delta, an S3 prefix) next to the `DATA_REFS` contract (`refs.py`) and the native openers (`openers.py`, extra `[stores]`) |
 | `packages/workflows` | Dagster assets/jobs/schedule/sensor: Ray fan-out + streaming micro-batch examples, plus one asset per data store (`stores.py`) through `dataset` |
 | `deployables.json` | The deployables (single source of truth for CI's build matrix and `infra/preview`) |
 | `infra/preview` | This app's per-PR preview stack (platform modules, remote source); `fork_provider` picks who forks the data |
