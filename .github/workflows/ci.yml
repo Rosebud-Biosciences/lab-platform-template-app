@@ -13,13 +13,8 @@ jobs:
   # platform modules it pins.
   infra:
     runs-on: ubuntu-latest
-    env:
-      MODULES_GIT_TOKEN: ${{ secrets.MODULES_GIT_TOKEN }} # only while the platform repo is private
     steps:
       - uses: actions/checkout@v7
-
-      - if: ${{ env.MODULES_GIT_TOKEN != '' }}
-        run: git config --global url."https://x-access-token:${MODULES_GIT_TOKEN}@github.com/".insteadOf "https://github.com/"
 
       - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
         with:

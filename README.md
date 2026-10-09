@@ -424,9 +424,10 @@ several; see `shared-platform.auto.tfvars`).
    is set, every deployment workflow (deploy, preview-up/down, sweep,
    data-pull) skips itself, so a fresh copy of the template runs only `ci`.
 4. Repository **secrets**: `NEON_API_KEY`, `TS_OAUTH_CLIENT_ID`,
-   `TS_OAUTH_SECRET`, `PROD_DATABASE_URL`; and, while the platform repo is
-   private, `MODULES_GIT_TOKEN` (a fine-grained PAT or App token with
-   read-only Contents on it) so `tofu init` can fetch the module sources.
+   `TS_OAUTH_SECRET`, `PROD_DATABASE_URL`. Pointing at a private fork of the
+   platform instead? `tofu init` then needs a token that can read it: pass
+   one to the reusable workflows as their `modules_git_token` secret, and
+   configure git with it before the `tofu init` steps here.
 5. For `deploy.yml`: an EKS access entry granting `CI_ROLE_ARN` edit rights on
    the `webapp` and `dagster` namespaces, and a prod stack that enables the
    webapp with `webapp_ignore_image_changes = true`.
