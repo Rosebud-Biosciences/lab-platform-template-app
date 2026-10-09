@@ -39,6 +39,18 @@ variable "preview_permissions_boundary_arn" {
   type        = string
 }
 
+variable "preview_namespace_admin" {
+  description = "What the preview binds in each namespace it creates, the preview role holding nothing there until it does (aws/eks-platform's preview_namespace_admin_cluster_role and preview_access_group outputs). Null on a platform without preview_access, whose preview role is cluster admin."
+  type = object({
+    cluster_role = string
+    group        = string
+  })
+  default = {
+    cluster_role = "preview-deployer-namespace-admin"
+    group        = "lab-platform:preview"
+  }
+}
+
 variable "vpc_name" {
   description = "VPC name used by Karpenter NodePools for subnet/SG discovery"
   type        = string

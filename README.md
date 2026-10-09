@@ -25,7 +25,7 @@ flowchart LR
 
 - **Previews** (`.github/workflows/preview-up.yml`): a PR labeled `preview`
   gets a Terraform workspace of [`infra/preview`](infra/preview/) stamped
-  `pr<N>-`: the PR's images serve the webapp and the Dagster code location,
+  `preview-pr<N>-` (its hostnames `pr<N>-`): the PR's images serve the webapp and the Dagster code location,
   against copy-on-write Neon branches of prod data. The PR's own migrations
   run on the PR's own branch — schema experiments never touch prod. The label
   is the gate, so most PRs deploy nothing. It is not a security gate: a PR
@@ -281,7 +281,7 @@ same contract, so nothing in `packages/` knows which is in use:
   state is data too: a full preview shows prod's Dagster run history and MLflow
   experiments and writes to none of them. Prod's archived workflows are on the
   Argo branch too but unlisted: Argo keys its archive by namespace, and the
-  preview's namespace-scoped server lists only its own (`pr<N>-argo`), so the
+  preview's namespace-scoped server lists only its own (`preview-pr<N>-argo`), so the
   preview gets an archive of its own rather than a view of prod's. MLflow's
   artifacts are the one non-branchable piece (write-once blobs; tether's
   object-store backend has no fork): they go to a per-preview prefix
@@ -404,14 +404,20 @@ state bucket (`aws/bootstrap`, with `preview_state_read_keys =
 ["template-app/terraform.tfstate"]`, this stack's backend key: the preview
 role reads no other state), an ECR repository, and Neon databases for
 `app`, `dagster`, `mlflow` and `argo` (one project with four databases, or
-several; see `shared-platform.auto.tfvars`).
+several; see `shared-platform.auto.tfvars`). On the cluster, scope the
+preview role to its own namespaces: `aws/eks-platform`'s `preview_access`
+(with `dex_namespace` if the platform runs Dex), and an access entry mapping
+the preview role to its `preview_access_group` with no access policy, not
+cluster admin. This stack names every preview namespace `preview-pr<N>-…` to
+match and binds itself admin in each (`preview_namespace_admin`, defaulting
+to `preview_access`'s names).
 
 1. The `Rosebud-Biosciences/lab-platform` references (workflow
    `uses:` lines, `infra/preview` module sources, links) point at the upstream
-   platform repo, pinned to its release `v0.2.0`: the reusable workflows run
+   platform repo, pinned to its release `v0.3.0`: the reusable workflows run
    with your AWS roles, so never point them at a moving branch. Forking the
    platform too? Find-and-replace them with your fork. Upgrading: bump every
-   `@v0.2.0` and `?ref=v0.2.0` together, after reading the platform's
+   `@v0.3.0` and `?ref=v0.3.0` together, after reading the platform's
    CHANGELOG. (Neither `uses:` nor a module `source` accepts a variable, so
    this is a literal.)
 2. Fill in `infra/preview/backend.tf` (state bucket/lock table) and
@@ -456,11 +462,17 @@ several; see `shared-platform.auto.tfvars`).
    project defaults, so this is where the cost stays where the tofu path had
    it. Grant the data-access policy to a role and set `DATA_ROLE_ARN` (or
    attach it to `PREVIEW_ROLE_ARN`), with `working_branch_prefix = "tether.ws."`
-   so Preview Down can delete Lance forks. For the deletes a pull_request run
-   must not hold (the stores a PR created, MLflow artifacts), enable
+   so Preview Down can delete Lance forks, and `protect_trunk = true`, so a
+   PR's workflow -- like its pods (`infra/preview`) -- writes its forks and
+   never prod's trunk or pins. List the same stores in `aws/bootstrap`'s
+   `preview_boundary_access` (the data bucket under `read`, its prefixes and
+   the prod tables under `write`, the Lance working branches under `delete`,
+   its key under `kms_key_arns`): the preview boundary refuses anything
+   unlisted. For what a pull_request run must not hold (deleting the stores a
+   PR created and MLflow artifacts; writing the pins), enable
    `aws/bootstrap`'s teardown role (main's runs only), attach the data-access
    policy with `allow_delete = true` to it, and set `TEARDOWN_ROLE_ARN`: the
-   nightly sweep uses it. Set `DATA_ROOT_URI` (`s3://<bucket>/tether/`), where
+   nightly sweep, `data-pull` and `tether-matrix` use it. Set `DATA_ROOT_URI` (`s3://<bucket>/tether/`), where
    those deletes may happen, then `FORK_PROVIDER=tether`. Same-repo PRs only:
    `fork-data` pushes the `pr<N>` bookmark branch. Once real stores exist,
    `ENABLE_TETHER_MATRIX=true` turns on the weekly live test.
@@ -472,8 +484,10 @@ several; see `shared-platform.auto.tfvars`).
 ## Security
 
 Read [SECURITY.md](SECURITY.md) before you adopt: a preview runs the pull
-request's code with the preview role, which deploys as cluster-admin in the
-shared cluster, and in tether mode its pods write into the production stores.
+request's code with the preview role -- confined to `preview-*` namespaces
+only once the platform's `preview_access` and its access entry are in place
+(else cluster-admin) -- and in tether mode its pods write into the
+production stores (their forks, never the trunk or its pins).
 
 ## Costs
 

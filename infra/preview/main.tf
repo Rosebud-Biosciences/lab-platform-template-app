@@ -28,7 +28,11 @@
 # ------------------------------------------------------------------------------
 
 locals {
-  name_prefix = "${var.preview_name}-"
+  # Every Kubernetes name the preview creates starts with "preview-": the
+  # preview role is an admin only in preview-* namespaces, and admitted only
+  # preview-* namespaces and NodePools (lab-platform modules/preview-access).
+  # Hostnames keep the short form.
+  name_prefix = "preview-${var.preview_name}-"
 
   preview_tags = merge(var.tags, {
     Environment = "preview"
@@ -59,7 +63,7 @@ locals {
 
 module "storage" {
   count  = local.tofu_forks ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/preview-storage?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/preview-storage?ref=v0.3.0"
 
   name_prefix = var.preview_name
   iam_path    = var.preview_iam_path
@@ -68,7 +72,7 @@ module "storage" {
 
 module "neon" {
   count  = local.neon_enabled ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/lab-platform//modules/neon-branches?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/neon-branches?ref=v0.3.0"
 
   providers = { neon = neon }
 
@@ -81,7 +85,7 @@ module "neon" {
 # the migrations created, then the namespace.
 module "iceberg" {
   count  = local.iceberg_enabled ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/iceberg-branches?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/iceberg-branches?ref=v0.3.0"
 
   name_prefix      = var.preview_name
   table_bucket_arn = var.iceberg_table_bucket_arn
@@ -109,7 +113,7 @@ check "tether_data_bucket_key" {
 
 module "data_access" {
   count  = local.tether_forks ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-access?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-access?ref=v0.3.0"
 
   name        = "${var.preview_name}-data-access"
   bucket_arn  = var.data_bucket_arn
@@ -118,6 +122,9 @@ module "data_access" {
   table_arns  = var.iceberg_table_arns
   iam_path    = var.preview_iam_path
   tags        = local.preview_tags
+
+  # The fork is the PR's to write; prod's trunk and the pins on it are not.
+  protect_trunk = true
 }
 
 # ------------------------------------------------------------------------------
@@ -199,7 +206,7 @@ locals {
 # Data axis: per-service IAM roles (IRSA on the shared EKS cluster) carrying
 # whichever object-store access the fork provider calls for.
 module "data" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-adapter?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-adapter?ref=v0.3.0"
 
   cluster_name      = var.cluster_name
   name_prefix       = local.name_prefix
@@ -235,7 +242,7 @@ module "data" {
 # in-flight runs -- while Ray workers, whose tasks Ray reschedules, run on spot
 # behind a taint that keeps everything else off those nodes.
 module "compute" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/compute-adapter?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/compute-adapter?ref=v0.3.0"
 
   providers = { aws = aws, helm = helm }
 
@@ -244,6 +251,9 @@ module "compute" {
   environment                  = "preview"
   vpc_name                     = var.vpc_name
   karpenter_node_iam_role_name = var.karpenter_node_iam_role_name
+  # The NodePool releases' records live in the preview's own namespace, not
+  # Karpenter's, which the preview role cannot write.
+  node_pools_namespace = module.workloads.webapp_namespace
 
   # No pipelines, no pools: an app-only preview rides the shared node group.
   # (Filtered for-expressions: the two pools differ in shape, which a
@@ -272,7 +282,7 @@ module "compute" {
 }
 
 module "workloads" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//modules/workloads?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/workloads?ref=v0.3.0"
 
   providers = {
     kubernetes = kubernetes
@@ -283,7 +293,8 @@ module "workloads" {
   environment = "preview"
 
   # Everything is prefixed so it never collides with prod or other previews.
-  name_prefix = local.name_prefix
+  name_prefix     = local.name_prefix
+  namespace_admin = var.preview_namespace_admin
 
   # Contract inputs from the adapters.
   workload_identity = module.data.workload_identity
@@ -300,7 +311,7 @@ module "workloads" {
   # Private Ingresses on the shared Tailscale operator, hostnames prefixed.
   enable_private_ingress          = var.private_ingress_dns_suffix != ""
   private_ingress_class_name      = "tailscale"
-  private_ingress_hostname_prefix = local.name_prefix
+  private_ingress_hostname_prefix = "${var.preview_name}-"
   private_ingress_dns_suffix      = var.private_ingress_dns_suffix
 
   # --- The app under test -----------------------------------------------------
