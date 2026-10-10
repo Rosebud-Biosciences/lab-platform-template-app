@@ -6,11 +6,13 @@ name: Preview Down
 # stays open. Destroying a workspace that never existed is a cheap no-op, so
 # closing a never-labeled PR is fine.
 #
-# tether mode (FORK_PROVIDER=tether) adds data-down AFTER the destroy, once the
-# pods have stopped writing: every fork the preview wrote is discarded, merged
-# or not, and any store the PR itself created is deleted -- prod recomputes
-# with the merged code. See .github/scripts/tether-down.sh for why, the order
-# and the reasons.
+# data-down follows the destroy, once the pods have stopped writing: every
+# tether fork the preview wrote is discarded, merged or not, and any store the
+# PR itself created is deleted -- prod recomputes with the merged code. See
+# .github/scripts/tether-down.sh for why, the order and the reasons. It runs
+# whatever FORK_PROVIDER says now: a preview forked in tether mode is retired
+# even after the variable moves to tofu, and a tofu preview has no bookmark,
+# so the script finds nothing to do.
 
 on:
   pull_request:
@@ -44,7 +46,7 @@ jobs:
 
   data-down:
     needs: down
-    if: ${{ !cancelled() && needs.down.result == 'success' && vars.CLUSTER_NAME != '' && vars.FORK_PROVIDER == 'tether' && (github.event.action == 'closed' || github.event.label.name == 'preview') }}
+    if: ${{ !cancelled() && needs.down.result == 'success' && vars.CLUSTER_NAME != '' && (github.event.action == 'closed' || github.event.label.name == 'preview') }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write

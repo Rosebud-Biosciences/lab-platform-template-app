@@ -59,7 +59,7 @@ flowchart LR
 | `deployables.json` | The deployables (single source of truth for CI's build matrix and `infra/preview`) |
 | `infra/preview` | This app's per-PR preview stack (platform modules, remote source); `fork_provider` picks who forks the data |
 | `Dockerfile` | One shared recipe, per-package images via `TARGET_PACKAGE`; GPU via `BASE_IMAGE` + `--extra gpu` |
-| `.github/workflows` | ci / preview-up / preview-down / sweep / deploy, plus data-pull (nightly pins of prod data) and tether-matrix (tether's live backend test, off by default) |
+| `.github/workflows` | ci / preview-up / preview-down / sweep / deploy, plus data-pull (pins of prod data, twice a day) and tether-matrix (tether's live backend test, off by default) |
 | `.github/scripts` | The tether half of the preview loop: `tether-fork.sh`, `tether-down.sh`, `tether-open-all.sh`, `tether-matrix.sh` |
 
 The workspace mirrors a production monorepo at hello-world scale: packages
@@ -339,7 +339,7 @@ hold real locators in such a copy:
   `.github/template-drift/shared-paths` with the template's. It rewrites the
   locator values to a placeholder on both sides first
   (`deployment-values.sed`) and ignores what the copy's data has recorded
-  (each manifest's state and pins, which `data-pull` moves nightly); a
+  (each manifest's state and pins, which `data-pull` moves twice a day); a
   script of the copy's own fills in the real locators from its
   infrastructure outputs. Keys, kinds and policies still have to match. One
   repo per deployment.
@@ -362,7 +362,7 @@ variable) selects the provider:
 | Icechunk / Lance / Delta / files | fresh, **empty** copies in the preview's ephemeral bucket | branches inside the **production** stores, forked from the last pinned state |
 | Iceberg | empty namespace of the preview's own | a branch on the prod table |
 | Across pushes to the PR | data persists | data persists: the first run's fork is kept (re-label the PR for a fresh one) |
-| Which prod state was tested | not recorded | the pinned dataset commit on `main` (nightly `data-pull`) |
+| Which prod state was tested | not recorded | the pinned dataset commit on `main` (`data-pull`, twice a day) |
 | Landing preview data on prod | never: prod recomputes with the merged code | never: every fork is discarded on merge or close, and prod recomputes with the merged code |
 | Preview's access to prod data | none | read/write (no delete) on the store prefixes, read/commit on the tables (`aws/data-access`) |
 | Dependencies | none | `tether-vcs` (alpha; its Neon and Iceberg backends are `experimental`) |
@@ -384,7 +384,7 @@ flowchart LR
   Pods --> Migrate[migrate: alembic on the fork]
   Close[PR closed / unlabeled] --> Destroy[preview-down: destroy]
   Destroy --> DataDown[data-down: discard every fork and the stores the PR created, merged or not]
-  Nightly[data-pull nightly] --> Main[main: tether pull + verify]
+  Pull[data-pull, twice a day] --> Main[main: tether pull + verify]
 ```
 
 `data-pull.yml` runs in both modes: it is the record of which prod state each
@@ -427,8 +427,10 @@ to `preview_access`'s names).
    under `/preview/` and no role without that boundary).
 3. Repository **variables**: `CI_ROLE_ARN`, `PREVIEW_ROLE_ARN`, `CLUSTER_NAME`,
    `AWS_REGION`, `ECR_REPOSITORY`. `CLUSTER_NAME` is also the switch: until it
-   is set, every deployment workflow (deploy, preview-up/down, sweep,
-   data-pull) skips itself, so a fresh copy of the template runs only `ci`.
+   is set, every deployment workflow (deploy, preview-up/down, sweep) skips
+   itself, and so does data-pull until `AWS_REGION` and a role are set (it
+   needs the stores, not the cluster, so it keeps pinning while a cluster is
+   down). A fresh copy of the template runs only `ci`.
 4. Repository **secrets**: `NEON_API_KEY`, `TS_OAUTH_CLIENT_ID`,
    `TS_OAUTH_SECRET`, `PROD_DATABASE_URL`. Pointing at a private fork of the
    platform instead? `tofu init` then needs a token that can read it: pass

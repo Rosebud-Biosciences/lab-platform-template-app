@@ -1,13 +1,15 @@
 name: Data pull
 
-# Nightly: record what moved in production data. `tether pull` on main reads
-# every registered object's upstream branch (and the branch-less objects
+# Twice a day: record what moved in production data. `tether pull` on main
+# reads every registered object's upstream branch (and the branch-less objects
 # themselves), pins what changed, and commits the manifests -- so main always
 # names a recent, reproducible state of prod's data. That state is also what a
 # tether-mode preview forks from (`tether new -b pr<N> --eager` forks the pins
-# main names), so a preview is at most a night behind prod. `verify` then
+# main names), so a preview is at most half a day behind prod. `verify` then
 # checks every pin still resolves, the day one stops rather than the day it is
-# needed.
+# needed. A pin also has to stay inside each store's history: a Neon project
+# keeps one day by default, and a fork from an older LSN fails, so a missed
+# run must still leave a pin less than a day old.
 #
 # Useful in BOTH data-provider modes: with tofu forking the previews, this is
 # still the record of which prod state each dataset commit describes.
@@ -21,14 +23,15 @@ name: Data pull
 # which the pull-request roles may not touch. Falls back to DATA_ROLE_ARN (or
 # PREVIEW_ROLE_ARN) where the trunk is not fenced.
 
-# Inert until adopted: every job here is gated on the CLUSTER_NAME repository
-# variable, which an adopter sets anyway (README "Adopt this template"). In the
-# template repo itself there is no cluster to deploy to, so the run is skipped
-# rather than failed -- a red X for "not configured" trains people to ignore
-# red X's.
+# Inert until adopted: gated on AWS_REGION and a role to assume, which an
+# adopter sets anyway (README "Adopt this template"), not on CLUSTER_NAME like
+# the deployment workflows -- it needs the stores, not the cluster, and must
+# keep the pins fresh while a cluster is down. In the template repo itself
+# none is set, so the run is skipped rather than failed -- a red X for "not
+# configured" trains people to ignore red X's.
 on:
   schedule:
-    - cron: "43 8 * * *"
+    - cron: "43 8,20 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -37,7 +40,7 @@ permissions:
 
 jobs:
   pull:
-    if: ${{ vars.CLUSTER_NAME != '' }}
+    if: ${{ vars.AWS_REGION != '' && (vars.TEARDOWN_ROLE_ARN != '' || vars.DATA_ROLE_ARN != '' || vars.PREVIEW_ROLE_ARN != '') }}
     runs-on: ubuntu-latest
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
