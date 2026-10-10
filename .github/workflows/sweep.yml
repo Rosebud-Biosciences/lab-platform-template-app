@@ -1,9 +1,10 @@
 name: Preview Sweep
 
 # Nightly belt-and-braces: destroy any pr* preview workspaces whose PR is no
-# longer open (missed teardowns, force-closed PRs, flaky runners). In tether
-# mode the same sweep then retires any pr* tether bookmark whose PR is closed,
-# discarding its forks as preview-down.yml's data-down does.
+# longer open (missed teardowns, force-closed PRs, flaky runners). The same
+# sweep then retires any pr* tether bookmark whose PR is closed, discarding its
+# forks as preview-down.yml's data-down does -- whatever FORK_PROVIDER says
+# now, since a bookmark outlives a switch to tofu; with none, it does nothing.
 
 # Inert until adopted: every job here is gated on the CLUSTER_NAME repository
 # variable, which an adopter sets anyway (README "Adopt this template"). In the
@@ -47,7 +48,7 @@ jobs:
 
   tether-sweep:
     needs: sweep
-    if: ${{ !cancelled() && vars.CLUSTER_NAME != '' && vars.FORK_PROVIDER == 'tether' }}
+    if: ${{ !cancelled() && vars.CLUSTER_NAME != '' }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
