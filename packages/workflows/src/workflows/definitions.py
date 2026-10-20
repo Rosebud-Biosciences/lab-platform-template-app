@@ -36,9 +36,9 @@ def ray_fanned_greetings() -> dg.MaterializeResult:
 
     The shape to copy: Dagster owns orchestration and the database write; Ray
     owns the parallel compute. With RAY_ADDRESS set (e.g.
-    ray://<prefix>kuberay-head-svc.ray.svc:10001) the tasks spread across the
-    Ray cluster; unset, Ray runs entirely inside the run pod / your laptop, so
-    the example needs no infrastructure.
+    ray://<prefix>ray-cluster-head-svc.<prefix>ray.svc:10001) the tasks spread
+    across the Ray cluster; unset, Ray runs entirely inside the run pod / your
+    laptop, so the example needs no infrastructure.
     """
     ray.init(address=os.environ.get("RAY_ADDRESS"), ignore_reinit_error=True)
     try:

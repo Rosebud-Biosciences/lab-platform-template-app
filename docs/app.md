@@ -114,8 +114,9 @@ Two workflow patterns to try in the Dagster UI:
 - **Fan-out over Ray** — `ray_fanout_job` materializes `ray_fanned_greetings`:
   Dagster orchestrates, Ray fans eight tasks out (locally when `RAY_ADDRESS`
   is unset, across your Ray cluster when set, e.g.
-  `ray://<prefix>kuberay-head-svc.ray.svc:10001`), and the results are written
-  back to the database in one place. Ray client connections require the
+  `ray://<prefix>ray-cluster-head-svc.<prefix>ray.svc:10001` for the
+  platform's cluster `ray-cluster`), and the results are written back to the
+  database in one place. Ray client connections require the
   cluster and this image to agree on Ray and Python *minor* versions — this
   repo is on Python 3.14, so point the platform's `ray_image_tag` at a
   matching `-py314` image (or pin this repo to the cluster's Python). The
