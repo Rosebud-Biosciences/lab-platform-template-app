@@ -8,6 +8,13 @@ lab-platform release it pins and was validated with.
 
 ## [Unreleased]
 
+### Fixed
+
+- `docs/app.md` and `ray_fanned_greetings` give the platform cluster's Ray
+  client address, `ray://<prefix>ray-cluster-head-svc.<prefix>ray.svc:10001`
+  (cluster `ray-cluster` in namespace `<prefix>ray`), not
+  `<prefix>kuberay-head-svc` in `ray`.
+
 ## [0.1.0] - 2026-10-22
 
 The first release. It pins lab-platform
