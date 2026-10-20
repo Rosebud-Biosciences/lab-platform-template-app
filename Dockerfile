@@ -18,7 +18,7 @@
 #                --build-arg GPU_DEPENDENCIES="torch" .
 #              -> any base works: uv provisions the pinned Python itself
 ARG BASE_IMAGE=python:3.14-slim
-ARG UV_VERSION=0.11.3
+ARG UV_VERSION=0.13.4
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 
