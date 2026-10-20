@@ -20,10 +20,10 @@ to `preview_access`'s names).
 
 1. The `Rosebud-Biosciences/lab-platform` references (workflow
    `uses:` lines, `infra/preview` module sources, links) point at the upstream
-   platform repo, pinned to its release `v0.3.0`: the reusable workflows run
+   platform repo, pinned to its release `v0.4.0`: the reusable workflows run
    with your AWS roles, so never point them at a moving branch. Forking the
    platform too? Find-and-replace them with your fork. Upgrading: bump every
-   `@v0.3.0` and `?ref=v0.3.0` together, after reading the platform's
+   `@v0.4.0` and `?ref=v0.4.0` together, after reading the platform's
    CHANGELOG. (Neither `uses:` nor a module `source` accepts a variable, so
    this is a literal.)
 2. Fill in `infra/preview/backend.tf` (state bucket/lock table) and

@@ -33,7 +33,7 @@ permissions:
 jobs:
   sweep:
     if: ${{ vars.CLUSTER_NAME != '' }}
-    uses: Rosebud-Biosciences/lab-platform/.github/workflows/nightly-sweep.yml@v0.3.0
+    uses: Rosebud-Biosciences/lab-platform/.github/workflows/nightly-sweep.yml@v0.4.0
     with:
       working_directory: infra/preview
       role_to_assume: ${{ vars.PREVIEW_ROLE_ARN }}

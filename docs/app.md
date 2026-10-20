@@ -115,11 +115,13 @@ Two workflow patterns to try in the Dagster UI:
   Dagster orchestrates, Ray fans eight tasks out (locally when `RAY_ADDRESS`
   is unset, across your Ray cluster when set, e.g.
   `ray://<prefix>ray-cluster-head-svc.<prefix>ray.svc:10001` for the
-  platform's cluster `ray-cluster`), and the results are written back to the
+  platform's cluster `ray-cluster`; its `ray_clusters` output has every
+  cluster's `client_address`), and the results are written back to the
   database in one place. Ray client connections require the
   cluster and this image to agree on Ray and Python *minor* versions — this
-  repo is on Python 3.14, so point the platform's `ray_image_tag` at a
-  matching `-py314` image (or pin this repo to the cluster's Python). The
+  repo is on Python 3.14, so point the platform's `ray_image_tag` (or the
+  cluster's `image` in `ray_clusters`) at a matching `-py314` image (or pin
+  this repo to the cluster's Python). The
   version-proof approach: build the workflows image FROM the cluster's own
   base (`BASE_IMAGE=rayproject/ray:<ray_version>-py314`), and both match by
   construction.

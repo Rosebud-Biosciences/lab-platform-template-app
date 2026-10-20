@@ -102,7 +102,7 @@ operator and `preview_access` (so a preview stays in its own namespaces), the
 bootstrap stack's CI and preview roles, an ECR repository, and Neon databases
 for the app, Dagster, MLflow and Argo. Then:
 
-1. Keep the `lab-platform` references pinned to a release (`v0.3.0`), and bump
+1. Keep the `lab-platform` references pinned to a release (`v0.4.0`), and bump
    them all together.
 2. Fill in `infra/preview/backend.tf` and
    `infra/preview/shared-platform.auto.tfvars` from the platform's outputs.

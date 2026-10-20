@@ -63,7 +63,7 @@ locals {
 
 module "storage" {
   count  = local.tofu_forks ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/preview-storage?ref=v0.3.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/preview-storage?ref=v0.4.0"
 
   name_prefix = var.preview_name
   iam_path    = var.preview_iam_path
@@ -72,7 +72,7 @@ module "storage" {
 
 module "neon" {
   count  = local.neon_enabled ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/lab-platform//modules/neon-branches?ref=v0.3.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/neon-branches?ref=v0.4.0"
 
   providers = { neon = neon }
 
@@ -85,7 +85,7 @@ module "neon" {
 # the migrations created, then the namespace.
 module "iceberg" {
   count  = local.iceberg_enabled ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/iceberg-branches?ref=v0.3.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/iceberg-branches?ref=v0.4.0"
 
   name_prefix      = var.preview_name
   table_bucket_arn = var.iceberg_table_bucket_arn
@@ -113,7 +113,7 @@ check "tether_data_bucket_key" {
 
 module "data_access" {
   count  = local.tether_forks ? 1 : 0
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-access?ref=v0.3.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-access?ref=v0.4.0"
 
   name        = "${var.preview_name}-data-access"
   bucket_arn  = var.data_bucket_arn
@@ -206,7 +206,7 @@ locals {
 # Data axis: per-service IAM roles (IRSA on the shared EKS cluster) carrying
 # whichever object-store access the fork provider calls for.
 module "data" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-adapter?ref=v0.3.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-adapter?ref=v0.4.0"
 
   cluster_name      = var.cluster_name
   name_prefix       = local.name_prefix
@@ -242,7 +242,7 @@ module "data" {
 # in-flight runs -- while Ray workers, whose tasks Ray reschedules, run on spot
 # behind a taint that keeps everything else off those nodes.
 module "compute" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/compute-adapter?ref=v0.3.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/compute-adapter?ref=v0.4.0"
 
   providers = { aws = aws, helm = helm }
 
@@ -282,7 +282,7 @@ module "compute" {
 }
 
 module "workloads" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//modules/workloads?ref=v0.3.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/workloads?ref=v0.4.0"
 
   providers = {
     kubernetes = kubernetes
@@ -327,13 +327,13 @@ module "workloads" {
 
   # Dagster's code location is the workflows image (packages/workflows via
   # /opt/dagster/app/repo.py). enable_ray creates the Ray namespace/RBAC for
-  # ray_fanout_job (set RAY_ADDRESS to reach a cluster); enable_ray_cluster
-  # stays off so previews don't pay for a standing Ray cluster. The user-code
+  # ray_fanout_job (set RAY_ADDRESS to reach a cluster); ray_clusters stays
+  # empty so previews don't pay for a standing Ray cluster. The user-code
   # deployment and every run it launches get DATABASE_URL (from database_url)
   # plus the same DATA_REFS / ICEBERG_CATALOG the webapp does.
   enable_dagster          = local.pipelines
   enable_ray              = local.pipelines
-  enable_ray_cluster      = false
+  ray_clusters            = {}
   dagster_user_code_image = local.image["workflows"]
   dagster_user_code_env   = local.data_env
 
