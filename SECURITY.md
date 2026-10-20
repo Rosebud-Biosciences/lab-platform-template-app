@@ -35,5 +35,10 @@ skip), whoever can push the branch controls both:
   into the production stores: their own forks, never delete, and never the
   trunk or its pins (`protect_trunk`), except Iceberg, whose refs share one
   metadata file. Opt in only where the PR's code is trusted with that.
+- The preview workflow holds `NEON_API_KEY` (to branch the databases), and
+  Neon has no branch-scoped keys: it is good for the whole project, prod's
+  branch included. Branch protection keeps prod's role passwords off a
+  preview's branch (`infra/preview` refuses an unprotected parent), not the
+  key away from a branch's code.
 - The `preview` label check is in a workflow file the PR can edit. Grant
   write access to the repository accordingly.

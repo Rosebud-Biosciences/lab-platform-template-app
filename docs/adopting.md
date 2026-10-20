@@ -30,7 +30,13 @@ to `preview_access`'s names).
    `infra/preview/shared-platform.auto.tfvars` (cluster, VPC, Karpenter role,
    tailnet suffix, Neon parent branches, and the bootstrap stack's
    `preview_permissions_boundary_arn`: the preview role creates IAM only
-   under `/preview/` and no role without that boundary).
+   under `/preview/` and no role without that boundary). Protect the Neon
+   branch previews are made from (prod's: the parent branches here, or in
+   tether mode the dataset's source branch); protected branches need a paid
+   Neon plan. Neon gives a branch made from a protected one new passwords for
+   its roles, so prod's credentials, the platform's notebook roles' included,
+   do not open a preview's database; `infra/preview` refuses to apply until
+   the parent is protected.
 3. Repository **variables**: `CI_ROLE_ARN`, `PREVIEW_ROLE_ARN`, `CLUSTER_NAME`,
    `AWS_REGION`, `ECR_REPOSITORY`. `CLUSTER_NAME` is also the switch: until it
    is set, every deployment workflow (deploy, preview-up/down, sweep) skips

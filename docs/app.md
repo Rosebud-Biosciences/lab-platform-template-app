@@ -51,11 +51,13 @@ which groups) stays the identity provider's. Sessions are stored as
 `HMAC(SESSION_SECRET, id)`: a preview's branch starts with prod's rows, and
 hashed with prod's secret they cannot log anyone in; preview-up also purges
 them (`python -m db.maintenance purge-sessions`) right after the migrations.
-The branch also inherits the platform's `nb_<tenant>__<group>` notebook
-roles **with their passwords** (Neon copies roles created by SQL as they
-are), so preview-up turns their logins off on the branch
-(`python -m db.maintenance lock-notebook-roles`, which refuses anywhere but
-Neon, where roles are per branch).
+The branch also inherits prod's roles, the platform's
+`nb_<tenant>__<group>` notebook roles among them. Neon copies roles to a
+branch with their passwords, unless the parent branch is protected: then
+the branch's copies get new ones. `infra/preview` refuses to stand a
+preview up on a branch made from an unprotected parent, so prod's notebook
+credentials never open a database whose row security the PR may have
+changed.
 `COOKIE_SECURE` (from the module's `auth.cookie_secure`) marks both of the
 app's cookies Secure, since behind the ingress the app sees plain http.
 

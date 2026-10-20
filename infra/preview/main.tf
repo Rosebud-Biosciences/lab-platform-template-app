@@ -143,6 +143,44 @@ data "neon_branch_role_password" "fork" {
   role_name  = each.value.user
 }
 
+# Neon gives a branch made from a protected branch new passwords for its
+# roles. Made from any other, the preview's database keeps prod's, the
+# platform's nb_<tenant>__<group> notebook roles' included, under whatever row
+# security the PR's migrations write. Checked at plan time: in tofu mode before
+# the branch exists, in tether mode once the fork does but before anything is
+# deployed or migrated on it.
+locals {
+  neon_parents = {
+    for p in distinct(concat(
+      [for d in values(var.fork_dbs) : { project_id = d.project_id, branch_id = d.branch_id, fork = "true" } if local.tether_forks],
+      [for s in values(var.neon_branch_sources) : { project_id = s.project_id, branch_id = s.parent_branch_id, fork = "false" } if local.neon_enabled],
+    )) : "${p.project_id}/${p.branch_id}" => p
+  }
+  unprotected_parents = distinct([
+    for r in values(data.external.neon_parent) : "${r.result.name} (${r.result.id})" if r.result.protected != "true"
+  ])
+}
+
+data "external" "neon_parent" {
+  for_each = local.neon_parents
+  program  = ["bash", "${path.module}/neon-protected.sh"]
+  query    = each.value
+}
+
+# A precondition rather than a failing data source: `tofu destroy` reads data
+# sources but checks no preconditions, so a preview made from an unprotected
+# branch can still be torn down.
+resource "terraform_data" "neon_parent_protected" {
+  count = length(local.neon_parents) > 0 ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition     = length(local.unprotected_parents) == 0
+      error_message = "Previews are made from Neon branches that are not protected: ${join(", ", local.unprotected_parents)}. Neon gives a branch made from a protected branch new passwords for its roles; made from these, the preview's would keep prod's, the notebook roles' (nb_<tenant>__<group>) included. Protect them (Neon console: Branches, the branch, Protect; paid plans), then remove and re-add the PR's preview label so the preview starts from a fresh branch."
+    }
+  }
+}
+
 locals {
   # Every database's connection, keyed like the Neon module's (app, dagster,
   # ...), whichever provider forked it.

@@ -30,7 +30,11 @@ What a preview contains:
   `extra_tfvars_json`) -- where each fork database lives, but no password,
   since GitHub drops a job output holding one; this stack reads the passwords
   from Neon and grants the pods access to those stores (`data-access`). Either way the pods get `DATABASE_URL` +
-  `DATA_REFS` (`data.tf`) and each service its own database.
+  `DATA_REFS` (`data.tf`) and each service its own database, and the Neon
+  branch the databases are made from must be protected, so that Neon gives
+  the preview's roles new passwords: the plan fails otherwise
+  (`neon-protected.sh`, which needs `curl`, `jq` and `NEON_API_KEY` or
+  `TF_VAR_neon_api_key` in the environment).
 - **A small Karpenter NodePool** — scales to zero when idle.
 - **Auth** — `auth = { mode = "headers" }`: the tailnet's Ingress proxy names
   the caller and the app trusts `Tailscale-User-Login` (`IDENTITY_HEADER`).

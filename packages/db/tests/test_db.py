@@ -44,7 +44,6 @@ def test_purge_sessions_empties_the_table(tmp_path, monkeypatch: pytest.MonkeyPa
     with Session(engine) as session:
         assert session.scalar(select(func.count()).select_from(LoginSession)) == 0
         assert session.scalar(select(func.count()).select_from(User)) == 1  # users stay
-    assert maintenance.main(["lock-notebook-roles"]) == 0  # SQLite has no roles
     assert maintenance.main(["nonsense"]) == 2
 
 

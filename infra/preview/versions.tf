@@ -22,5 +22,9 @@ terraform {
       source  = "kislerdm/neon"
       version = ">= 0.6.3"
     }
+    external = {
+      source  = "hashicorp/external"
+      version = ">= 2.3"
+    }
   }
 }
