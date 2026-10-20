@@ -8,6 +8,14 @@ lab-platform release it pins and was validated with.
 
 ## [Unreleased]
 
+### Changed
+
+- Pins lab-platform v0.4.0 (every `@v0.4.0` and `?ref=v0.4.0`; read its
+  CHANGELOG first). `infra/preview` passes `ray_clusters = {}`, which replaces
+  the removed `enable_ray_cluster`, so previews still run no standing Ray
+  cluster, and `docs/app.md` points at the platform's `ray_clusters` output
+  for each cluster's client address and at a cluster's own `image`.
+
 ### Fixed
 
 - `docs/app.md` and `ray_fanned_greetings` give the platform cluster's Ray
