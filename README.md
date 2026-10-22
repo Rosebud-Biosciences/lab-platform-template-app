@@ -11,7 +11,9 @@ from prod, and deploys `main` to prod. Every piece is tiny; the value is the
 wiring.
 
 Use it as a GitHub template ("Use this template"), then follow
-[Adopt this template](#adopt-this-template).
+[Adopt this template](#adopt-this-template). That copies `main`; the
+[CHANGELOG](CHANGELOG.md) says which lab-platform release each tagged
+release was validated with.
 
 ## How it works
 
