@@ -82,7 +82,7 @@ from pyiceberg.utils.config import Config
 committed = tomllib.load(open(sys.argv[1], "rb"))["backends"]["iceberg"]["catalog"]
 print(json.dumps({**(Config().get_catalog_config("s3tables") or {}), **committed}))
 ' "$DATASET_ROOT/tether.toml")
-note "open: addresses for $(jq -r 'fromjson | keys | join(", ")' <<<"$DATA_REFS")"
+note "open: addresses for $(jq -r 'keys | join(", ")' <<<"$DATA_REFS")"
 
 # 3. Write through the app's own assets, one backend at a time.
 rows="${RUNNER_TEMP:-/tmp}/matrix-rows.json"
