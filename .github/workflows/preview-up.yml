@@ -157,7 +157,7 @@ jobs:
           role-to-assume: ${{ vars.DATA_ROLE_ARN || vars.PREVIEW_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.13.4"
           enable-cache: true
@@ -212,7 +212,7 @@ jobs:
           tofu_version: "1.12.6"
           tofu_wrapper: false
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.13.4"
           enable-cache: true
