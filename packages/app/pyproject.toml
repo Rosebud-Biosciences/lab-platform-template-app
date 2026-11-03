@@ -14,7 +14,7 @@ dependencies = [
     "authlib>=1.8",
     "httpx2>=2.13",
     "itsdangerous>=2.2",
-    "joserfc>=1.7",
+    "joserfc>=1.7.6",
     # Reactive notebooks served BY the app (see app.main's /notebooks mount).
     "marimo>=0.13",
     # The DATA_REFS contract (no store libraries): /data shows what the app is wired to.
